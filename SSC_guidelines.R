@@ -1,10 +1,10 @@
 ## Source global
 source(here::here("global.R"))
 
-rec_num <- c(1:107)
-rec_label <- rep(NA_character_, 107)
-rec_type <- rep(NA_character_, 107)
-rec_use <- rep(NA_character_, 107)
+rec_num <- c(1:129)
+rec_label <- rep(NA_character_, 129)
+rec_type <- rep(NA_character_, 129)
+rec_use <- rep(NA_character_, 129)
 
 ssc_guidelines <- data.table(rec_num,
                              rec_label,
@@ -14,7 +14,11 @@ ssc_guidelines <- data.table(rec_num,
   .[rec_num %in% 42:64, rec_cat := "hemodynamic management"] %>% 
   .[rec_num %in% 65:78, rec_cat := "respiratory support"] %>% 
   .[rec_num %in% 79:99, rec_cat := "additional and adjunctive therapies"] %>% 
-  .[rec_num %in% 100:107, rec_cat := "goals of care"]
+  .[rec_num %in% 100:107, rec_cat := "goals of care"] %>% 
+  .[rec_num %in% 108:123, rec_cat := "transitions of care"] %>% 
+  .[rec_num %in% 124:129, rec_cat := "long-term outcomes and recovery"]
+
+## Screening and Early Management
 
 ssc_guidelines[rec_num == 1,
                `:=` (rec_label = "For hospitals and health systems, we recommend using 
@@ -136,6 +140,8 @@ ssc_guidelines[rec_num == 15,
                      rec_type = "conditional recommendation",
                      
                      rec_use = "yes")]
+
+## Infection
 
 ssc_guidelines[rec_num == 16,
                `:=` (rec_label = "For adults with possible, or definite septic shock, 
@@ -905,8 +911,294 @@ ssc_guidelines[rec_num == 99,
                      
                      rec_use = NA_character_)]
 
+## Goals of Care
 
+ssc_guidelines[rec_num == 100,
+               `:=` (rec_label = "For adults with sepsis or sepsis shock, clinicians should 
+                     discuss goals of care and prognosis with patients and/or families.",
+                     
+                     rec_type = "good practice statement",
+                     
+                     rec_use = "no")]
 
+ssc_guidelines[rec_num == 101,
+               `:=` (rec_label = "For adults with sepsis or septic shock, we suggest
+                     addressing goals of care early (within 72 hours) over late (72 
+                     hours or later).",
+                     
+                     rec_type = "conditional recommendation",
+                     
+                     rec_use = NA_character_)]
 
+ssc_guidelines[rec_num == 102,
+                `:=` (rec_label = "For adults with sepsis or septic shock, there 
+                      is insufficient evidence to issue a recommendation regarding
+                      the use of a specific standardized criterion to identify patients 
+                      for goals of care discussions.",
+                      
+                      rec_type = "insufficent evidence",
+                      
+                      rec_use = "no")]
+
+ssc_guidelines[rec_num == 103,
+               `:=` (rec_label = "Health systems should implement strategies to 
+                     ensure that patients being discharged from hospital after sepsis 
+                     or septic shock have the opportunity to execute advance directives.",
+                     
+                     rec_type = "good practice statement",
+                     
+                     rec_use = "no")]
+
+ssc_guidelines[rec_num == 104,
+               `:=` (rec_label = "For adults with sepsis or septic shock, there 
+                     is insufficient evidence to issue a recommendation on the 
+                     systematic establishment of advance care directives prior 
+                     to hospital discharge.",
+                     
+                     rec_type = "insufficient evidence",
+                     
+                     rec_use = "no")]
+
+ssc_guidelines[rec_num == 105,
+               `:=` (rec_label = "For adults with sepsis or septic shock, there
+                     is insufficient evidence to issue a recommendation regarding 
+                     formal time-limited trials or critical care.",
+                     
+                     rec_type = "insufficient evidence",
+                     
+                     rec_use = "no")]
+
+ssc_guidelines[rec_num == 106,
+               `:=` (rec_label = "The principles of palliative care (which may include
+                     palliative care consultation based on clinician judgement) should
+                     be integrated into the treatment plan, when appropriate, to address
+                     patient and family symptoms and suffering.",
+                     
+                     rec_type = "good practice statement",
+                     
+                     rec_use = "no")]
+
+ssc_guidelines[rec_num == 107,
+               `:=` (rec_label = "For adults with sepsis or septic shock, we suggest
+                     against routine formal palliative care consultation for all 
+                     patients over palliative care consultation basaed on clinician 
+                     judgement.",
+                     
+                     rec_type = "conditional recommendation against",
+                     
+                     rec_use = "no, negative recommendation")]
+
+## Transitions of Care
+
+ssc_guidelines[rec_num == 108,
+               `:=` (rec_label = "For adults with sepsis and septic shock admitted 
+                     to ICU, we suggest using a critical care transition program, 
+                     compared with usual care, upon transfer to the floor.",
+                     
+                     rec_type = "conditional recommendation",
+                     
+                     rec_use = NA_character_)]
+
+ssc_guidelines[rec_num == 109,
+               `:=` (rec_label = "For adults with sepsis or septic shock, we suggest 
+                     using a handoff process of critically important information at
+                     transitions of care over no such handoff process.",
+                     
+                     rec_type = "conditional recommendation",
+                     
+                     rec_use = NA_character_)]
+
+ssc_guidelines[rec_num == 110,
+               `:=` (rec_label = "Hospitals and health systems should screen patients 
+                     with sepsis or septic shock for economic and social support needs
+                     (including housing, nutrional, financial, and spiritual support) 
+                     and make referrals where available to meet these needs.",
+                     
+                     rec_type = "good practice statement",
+                     
+                     rec_use = "no")]
+
+ssc_guidelines[rec_num == 111,
+               `:=` (rec_label = "For adults with sepsis or septic shock, comprehensive 
+                     medication reconiliation should be performed at transitions in care,
+                     including at ICU and hospital discharge.",
+                     
+                     rec_type = "good practice statement",
+                     
+                     rec_use = "no")]
+
+ssc_guidelines[rec_num == 112,
+               `:=` (rec_label = "For adults with sepsis or septic shock, we suggest 
+                     comprehensive medication reconciliation using a pharmacist-based
+                     approach at transitions in care.",
+                     
+                     rec_type = "conditional recommendation",
+                     
+                     rec_use = NA_character_)]
+
+ssc_guidelines[rec_num == 113,
+               `:=` (rec_label = "Clinical teams should provide adults with sepsis 
+                     or septic shock and their families the opportunity to participate 
+                     in shared decision making in post-ICU and hospital dischare planning 
+                     to ensure discharge plans are acceptable and feasible.",
+                     
+                     rec_type = "good practice statement",
+                     
+                     rec_use = "no")]
+
+ssc_guidelines[rec_num == 114,
+               `:=` (rec_label = "For adult survivors or sepsis or septic shock 
+                     and their families, clinicians should provide information about
+                     the hospital stay, sepsis and related diagnoses, treatments, 
+                     and common impairments after sepsis in the written and verbal 
+                     discharge summary.",
+                     
+                     rec_type = "good practice statement",
+                     
+                     rec_use = "no")]
+
+ssc_guidelines[rec_num == 115,
+               `:=` (rec_label = "For adults with sepsis or septic shock who developed 
+                     new impairments, hospital discharge plans should include follow-up
+                     with clinicians able to support and manage new and long-term sequelae.",
+                     
+                     rec_type = "good practice statement",
+                     
+                     rec_use = "no")]
+
+ssc_guidelines[rec_num == 116,
+               `:=` (rec_label = "Healthcare systems should implement strategies 
+                     to ensure that patients, their families and their primary care 
+                     providers are provided with adequate information to navigate
+                     the transition out of hospital.",
+                     
+                     rec_type = "good practice statement",
+                     
+                     rec_use = "no")]
+
+ssc_guidelines[rec_num == 117,
+               `:=` (rec_label = "For adults who survive hospitalization with sepsis 
+                     or septic shock, there is insufficient evidence to issue a 
+                     recommendation regarding a specific structured multi-component
+                     discharge planning process.",
+                     
+                     rec_type = "insufficient evidence",
+                     
+                     rec_use = "no")]
+
+ssc_guidelines[rec_num == 118,
+               `:=` (rec_label = "For adult survivors of sepsis or septic shock and 
+                     their families, clinicians should provide information abot the 
+                     hospital stay, sepsis and related diagnose, treatments, and
+                     common impairments after sepsis in the written and verbal discharge
+                     summary.",
+                     
+                     rec_type = "good practice statement",
+                     
+                     rec_use = "no")]
+
+ssc_guidelines[rec_num == 119,
+               `:=` (rec_label = "For adults with sepsis and septic shock and their
+                     families, we suggest offering written and verbal sepsis education
+                     (diagnosis, treatment, post-ICU/sepsis syndrome) prior to hospital 
+                     discharge and in the follow-up setting.",
+                     
+                     rec_type = "conditional recommendation",
+                     
+                     rec_use = NA_character_)]
+
+ssc_guidelines[rec_num == 120,
+               `:=` (rec_label = "Health systems should implement strategies to ensure 
+                     clinicians have the knowledge and competency to support sepsis 
+                     survivors and their families during the post-hospital recovery.",
+                     
+                     rec_type = "good practice statement",
+                     
+                     rec_use = "no")]
+
+ssc_guidelines[rec_num == 121,
+               `:=` (rec_label = "There is insufficient evidence to issue a recommendation 
+                     regarding providing sepsis-focued educational material to primary 
+                     care providers as compared to usual care.",
+                     
+                     rec_type = "insufficient evidence",
+                     
+                     rec_use = "no")]
+
+ssc_guidelines[rec_num == 122,
+               `:=` (rec_label = "Health systems should implement strategies to 
+                     support sepsis survivors and their families during the post-hospital
+                     recovery.",
+                     
+                     rec_type = "good practice statement",
+                     
+                     rec_use = "no")]
+
+ssc_guidelines[rec_num == 123,
+               `:=` (rec_label = "There is insufficient evidence to make a recommendation 
+                     on early post-hospital discharge follow-up versus routine post-hospital 
+                     discharge follow-up",
+                     
+                     rec_type = "insufficient evidence",
+                     
+                     rec_use = "no")]
+
+## Long-Term Outcomes and Recovery
+
+ssc_guidelines[rec_num == 124,
+               `:=` (rec_label = "Health systems should facilitate assessment and 
+                     follow-up for physical, cognitive, and emotional probelms after
+                     hospital discharge for sepsis or septic shock.",
+                     
+                     rec_type = "good practice statement",
+                     
+                     rec_use = "no")]
+
+ssc_guidelines[rec_num == 125,
+               `:=` (rec_label = "For adult survivors of hospitalization for sepsis 
+                     or septic shock, we suggest offering post critical illness 
+                     follow-up services.",
+                     
+                     rec_type = "conditional recommendation",
+                     
+                     rec_use = NA_character_)]
+
+ssc_guidelines[rec_num == 126,
+               `:=` (rec_label = "For adult survivors of hospitalization for sepsis 
+                     or septic shock who received invasive mechanical ventilation 
+                     > 48 hours, we suggest offering physical rehabilitation services 
+                     after hospital discharge.",
+                     
+                     rec_type = "conditional recommendation",
+                     
+                     rec_use = NA_character_)]
+
+ssc_guidelines[rec_num == 127,
+               `:=` (rec_label = "For adult survivors of hospitalization for sepsis
+                     or septic shock, we suggest offering services that support mental
+                     health after hospital discharge.",
+                     
+                     rec_type = "conditional recommendation",
+                     
+                     rec_use = NA_character_)]
+
+ssc_guidelines[rec_num == 128,
+               `:=` (rec_label = "Adult survivors of hospitalization for sepsis or 
+                     septic shock who demonstate clinical symptoms of mental health 
+                     disorders should be referred to appropriate healthcare professionals
+                     for evaluation and management.",
+                     
+                     rec_type = "good practice statement",
+                     
+                     rec_use = "no")]
+
+ssc_guidelines[rec_num == 129,
+               `:=` (rec_label = "For adult survivors of hospitalization for sepsis
+                     or septic shock, there is insufficient evidence to issue a
+                     recommendation regarding cognition-targeted therapies versus usual care.",
+                    
+                     rec_type = "insufficient evidence",
+                     
+                     rec_use = "no")]
 
 
