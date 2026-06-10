@@ -221,6 +221,8 @@ ssc_guidelines[rec_num == 15,
 
 ## Infection
 
+## Infection
+
 ssc_guidelines[rec_num == 16,
                `:=` (rec_label = "For adults with possible, or definite septic shock, 
                      we recommend administering antimicrobial therapy immediately, 
@@ -1342,13 +1344,13 @@ ssc_guidelines[rec_num == 128,
 ssc_guidelines[rec_num == 129,
                `:=` (rec_label = "For adult survivors of hospitalization for sepsis
                      or septic shock, there is insufficient evidence to issue a
+
                      recommendation regarding cognition-targeted therapies versus 
                      usual care.",
                     
                      rec_type = "insufficient evidence",
                      
                      rec_use = "no")]
-
 
 ssc_guidelines %>% 
   copy() %>% 
@@ -1375,3 +1377,5 @@ ssc_guidelines %>%
         rec_cat)] %>% 
   .[, rec_label := gsub("\\s*\\n\\s*", " ", rec_label)] %>% 
   saveRDS(., here::here("Data/ssc_recommendations.rds"))
+=======
+>>>>>>> d8dde05a1856c86df6002ff082d069b7bddc37f7:SSC_guidelines.R
