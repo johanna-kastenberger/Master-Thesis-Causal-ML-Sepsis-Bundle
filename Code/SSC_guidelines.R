@@ -547,7 +547,7 @@ ssc_guidelines[rec_num == 42,
                `:=` (rec_label = "For adults with septic shock, we suggest using 
                      either invasive or non-invasive blood pressure monitoring.",
                      
-                     rec_type = "none",
+                     rec_type = "prior conditional recommendation",
                      
                      rec_use = NA_character_)]
 
@@ -669,7 +669,7 @@ ssc_guidelines[rec_num == 55,
 
 ssc_guidelines[rec_num == 56,
                `:=` (rec_label = "For adults with septic shock on escalating doses 
-                     or norepinephrine, we suggest adding vasopressin.",
+                     of norepinephrine, we suggest adding vasopressin.",
                      
                      rec_type = "conditional recommendation",
                      
@@ -807,7 +807,7 @@ ssc_guidelines[rec_num == 70,
 ssc_guidelines[rec_num == 71,
                `:=` (rec_label = "For adults with sepsis and ARDS, we recommend 
                      using a low tidal volume ventilation strategy (6 ml/kg) over 
-                     a high tidal volumn strategy (> 10 ml/kg).",
+                     a high tidal volume strategy (> 10 ml/kg).",
                      
                      rec_type = "strong recommendation",
                      
@@ -964,16 +964,23 @@ ssc_guidelines[rec_num == 88,
                      rec_use = "no, negative recommendation")]
 
 ssc_guidelines[rec_num == 89,
-               `:=` (rec_label = "For adults with sepsis or septic shock, we suggest 
-                     against using probiotics.",
+               `:=` (rec_label = "For adults with septic shock after the acute 
+                     resuscitation, we suggest using active fluid removal. Acute 
+                     resuscitation refers to escalating doses of vasopressor, ongoing 
+                     high doses of vasopressors, or needing ongoing volume expansion.
+                     Active fluid removal refers to diuretics and, if diuretics are 
+                     insufficient, ultrafiltration or extracorporeal fluid removal.
+                     Factors to be considered when deciding to initiate active fluid 
+                     removal include cardiorespiratory function; vasopressor dose; 
+                     clinical course; peripheral edema; weight; and fluid balance.",
                      
-                     rec_type = "conditonal recommendation against",
+                     rec_type = "conditional recommendation",
                      
                      rec_use = "no, negative recommendation")]
 
 ssc_guidelines[rec_num == 90,
                `:=` (rec_label = "For adults with sepsis or septic shock, we recommend
-                     using a restrictive transfusion strategy over a liberal  transfusion 
+                     using a restrictive transfusion strategy over a liberal transfusion 
                      strategy.",
                      
                      rec_type = "strong recommendation",
@@ -1355,7 +1362,8 @@ ssc_guidelines[rec_num == 129,
 ssc_guidelines %>% 
   copy() %>% 
   .[rec_type %in% c("strong recommendation",
-                    "conditional recommendation")] %>% 
+                    "conditional recommendation",
+                    "prior conditional recommendation")] %>% 
   # .[rec_use == "yes"] %>% 
   .[, .(rec_num,
         rec_label,
@@ -1370,12 +1378,11 @@ ssc_guidelines %>%
 ssc_guidelines %>% 
   copy() %>% 
   .[rec_type %in% c("strong recommendation",
-                    "conditional recommendation")] %>% 
+                    "conditional recommendation",
+                    "prior conditional recommendation")] %>% 
   .[, .(rec_num,
         rec_label,
         rec_type,
         rec_cat)] %>% 
   .[, rec_label := gsub("\\s*\\n\\s*", " ", rec_label)] %>% 
   saveRDS(., here::here("Data/ssc_recommendations.rds"))
-=======
->>>>>>> d8dde05a1856c86df6002ff082d069b7bddc37f7:SSC_guidelines.R
