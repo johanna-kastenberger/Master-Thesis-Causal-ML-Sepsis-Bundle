@@ -7,6 +7,7 @@ project_id <- "master-thesis-492309"
 hosp_db <- "`physionet-data.mimiciv_3_1_hosp`"
 icu_db  <- "`physionet-data.mimiciv_3_1_icu`"
 derived_db <- "`physionet-data.mimiciv_3_1_derived`"
+note_db <- "`physionet-data.mimiciv_note`"
 
 ## Helper function to execute and download queries
 run_query <- function(sql) {
@@ -233,7 +234,8 @@ sql_labevents <- glue::glue(
     hadm_id,
     charttime,
     itemid,
-    valuenum
+    valuenum,
+    valueuom
   FROM {hosp_db}.labevents
   WHERE hadm_id IN ({hadm_ids_sql_list})
     AND itemid IN ({sql_lab_itemids})")
@@ -345,7 +347,15 @@ chartevents_patterns <- c("heart rate",
                           "chlorothiazide",
                           
                           "hydrochlorothiazide",
-                          "thiazide")
+                          "thiazide",
+                          
+                          ## oxygen flow
+                          "o2 flow",
+                          "oxygen flow",
+                          "flow rate",
+                          "flow",
+                          "l/min",
+                          "liter")
 
 ## The code keeps labs such as lactate, WBC, creatinine, hemoglobin, platelets, INR, 
 ## troponin, vancomycin level, and pH. These are relevant for sepsis severity, monitoring, 
@@ -367,7 +377,7 @@ sql_chart_itemids <- paste(unique(chart_itemids$itemid), collapse = ", ")
 ## MAP, and oxygen device. These are needed for hemodynamics, ventilation, oxygenation, 
 ## and monitoring variables.
 sql_chartevents <- glue::glue("
-  SELECT stay_id, charttime, itemid, valuenum, value
+  SELECT stay_id, charttime, itemid, valuenum, value, valueuom
   FROM {icu_db}.chartevents
   WHERE stay_id IN ({stay_ids_sql_list}) AND itemid IN ({sql_chart_itemids})")
 
@@ -375,6 +385,8 @@ sql_chartevents <- glue::glue("
 # saveRDS(all_chartevents, here::here("Data/all_chartevents.rds"))
 all_chartevents <- readRDS(here::here("Data/all_chartevents.rds")) %>% 
   setDT()
+  ## restrict to only patients in sepsis base cohort, since
+  ## this is a very large data.tabe
 
 ## 7. PULL ALL PROCEDURE EVENTS ------------------------------------------------
 ## Pull procedure event event look-up table to select relevant item IDs
@@ -517,6 +529,9 @@ all_outputevents <- readRDS(here::here("Data/all_outputevents.rds")) %>%
 ## 12. DEFINE SEPTIC SHOCK AND SEPSIS-INDUCED HYPOPERFUSION --------------------
 ## Define septic shock
 ## sepsis + vasopressor administration (vasporessor = 1) + lactate > 2
+## Septic shock is a subset of sepsis in which profound circulatory,
+## cellular, and metabolic abnormalities are associated with a
+## greater risk of mortality
 
 ## Define sepsis onset
 sepsis_onset <- base_cohort_variables %>% 
@@ -543,10 +558,13 @@ lactate_events <- all_labevents_icu %>%
       hadm_id,
       stay_id,
       charttime,
-      valuenum)] %>% 
+      valuenum,
+      valueuom)] %>% 
   unique()
 
-## 12 hour window around sepsis onset time
+## 6 hour window after sepsis onset
+## Allow 1 hour before sepsis onset to account for
+## documentation timing (grace period)
 lac_window <- lactate_events %>% 
   copy() %>% 
   merge(.,
@@ -557,10 +575,12 @@ lac_window <- lactate_events %>%
         all.x = TRUE,
         all.y = FALSE,
         allow.cartesian = TRUE) %>% 
-  .[charttime >= sepsis_onset - hours(6) &
+  .[charttime >= sepsis_onset - hours(1) &
       charttime <= sepsis_onset + hours(6) &
       !is.na(valuenum) &
-      valuenum > 2] %>% 
+      valuenum > 2 &
+      valueuom == "mmol/L"] %>% 
+  ## Select first vasopressor administration
   .[order(charttime),
     .SD[1], 
     by = .(subject_id,
@@ -619,7 +639,7 @@ vaso_window <- vasopressor_events %>%
         all.x = TRUE,
         all.y = FALSE,
         allow.cartesian = TRUE) %>% 
-  .[starttime >= sepsis_onset - hours(6) &
+  .[starttime >= sepsis_onset - hours(1) &
       starttime <= sepsis_onset + hours(6)] %>% 
   merge(.,
         vasopressor_lookup,
@@ -665,7 +685,7 @@ septic_shock <- sepsis_onset %>%
   ## Since there is no universally accepted precise clinical definition of sepsis-induced 
   ## hypoperfusion, rationale for recommenation 10 e.g. comes from studies of early 
   ## fluid resuscitation with hypotension and/or elevated lactate
-  ## We use serum lactate > 2mmol/L within +/- 6 hours of suspected infection time
+  ## We use serum lactate > 2mmol/L within +6/-1  hours of suspected infection time
   ## as a proxy for sepsis-induced hypoperfusion
   .[, hypoperfusion_proxy := lactate_over2] %>% 
   .[, septic_shock_onset_time := fifelse(
@@ -677,6 +697,11 @@ septic_shock <- sepsis_onset %>%
   )]
 
 ## Add septic shock and hypoperfusion variables to ssc variable data
+
+## For hospital admissions with multiple ICU stays, only the first ICU stay was 
+## retained to ensure that guideline adherance was assessed during the initial 
+## ICU management of each sepsis episode. Patients could contribute multiple
+## hospital admissions if they represented separate hospitalization episodes.
 sepsis_base_cohort_data <- base_cohort_variables %>% 
   copy() %>% 
   merge(.,
@@ -697,3 +722,16 @@ sepsis_base_cohort_data <- base_cohort_variables %>%
 
 saveRDS(sepsis_base_cohort_data,
         here::here("Data/sepsis_base_cohort_data.rds"))
+
+## 13. PULL ALL RADIOLOGY EVENTS FROM MIMICIV-NOTE -----------------------------
+sql_radiology <- glue::glue(
+  "SELECT
+    *
+  FROM {note_db}.radiology
+  WHERE hadm_id IN ({hadm_ids_sql_list})")
+
+# all_radiologyevents <- run_query(sql_radiology)
+# saveRDS(all_radiology_events, here::here("Data/all_radiologyevents.rds"))
+all_radiologyevents <- readRDS(here::here("Data/all_radiologyevents.rds")) %>% 
+  setDT()
+
