@@ -2,24 +2,7 @@
 source(here::here("Code/global.R"))
 
 DT_ssc_encoded <- readRDS(here::here("Data/DT_ssc_encoded.rds")) %>% 
-  as.data.table() %>% 
-  .[, rec_10_crystalloid_within_3h := as.character(rec_10_crystalloid_within_3h)] %>% 
-  .[!(septic_shock_proxy == TRUE &
-        hypoperfusion_proxy == TRUE),
-    rec_10_crystalloid_within_3h := "not eligible"] %>% 
-  .[, rec_12_vaso_before_cvc := as.character(rec_12_vaso_before_cvc)] %>% 
-  .[septic_shock_proxy != TRUE, 
-    rec_12_vaso_before_cvc := "not eligible"] %>% 
-  .[, rec_13_map_target_65 := as.character(rec_13_map_target_65)] %>% 
-  .[septic_shock_proxy != TRUE, rec_13_map_target_65 := "not eligible"] %>% 
-  .[, rec_16_shock_antib_within_1h := as.character(rec_16_shock_antib_within_1h)] %>% 
-  .[septic_shock_proxy != TRUE, rec_16_shock_antib_within_1h := "not eligible"] %>% 
-  .[, rec_53_first_vaso_norepi := as.character(rec_53_first_vaso_norepi)] %>% 
-  .[septic_shock_proxy != TRUE, rec_53_first_vaso_norepi := "not eligible"] %>% 
-  .[, rec_55_first_vaso_norepi := as.character(rec_55_first_vaso_norepi)] %>% 
-  .[septic_shock_proxy != TRUE, rec_55_first_vaso_norepi := "not eligible"] %>% 
-  .[, rec_55_first_vaso_norepi := as.character(rec_55_first_vaso_norepi)] %>% 
-  .[septic_shock_proxy != TRUE, rec_55_first_vaso_norepi := "not eligible"]
+  setDT()
   
 
 ## Recommendation 7
@@ -59,6 +42,13 @@ DT_ssc_encoded %>%
   geom_bar() +
   theme_minimal()
 
+DT_ssc_encoded %>% 
+  copy() %>% 
+  ggplot(aes(x = rec_10_eligibility,
+             fill = rec_10_eligibility)) +
+  geom_bar() +
+  theme_minimal()
+
 ## Recommenation 12
 ## septic shock
 rec12_label <- ssc_recommendations %>% 
@@ -72,6 +62,13 @@ DT_ssc_encoded %>%
   geom_bar() +
   theme_minimal()
 
+DT_ssc_encoded %>% 
+  copy() %>% 
+  ggplot(aes(x = rec_12_eligibility,
+             fill = rec_12_eligibility)) +
+  geom_bar() +
+  theme_minimal()
+
 ## Recommendation 13
 rec_13_label <- ssc_recommendations %>% 
   copy() %>% 
@@ -81,6 +78,13 @@ DT_ssc_encoded %>%
   copy() %>% 
   ggplot(aes(x = rec_13_map_target_65,
              fill = rec_13_map_target_65)) +
+  geom_bar() +
+  theme_minimal()
+
+DT_ssc_encoded %>% 
+  copy() %>% 
+  ggplot(aes(x = rec_13_eligibility,
+             fill = rec_13_eligibility)) +
   geom_bar() +
   theme_minimal()
 

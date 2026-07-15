@@ -24,6 +24,11 @@ sepsis_base_cohort_data <- sepsis_base_cohort_data %>%
   copy() %>% 
   ## patients with sepsis
   .[sepsis3 == TRUE] %>% 
+  .[, time_to_sepsis :=
+      lubridate::time_length(
+          suspected_infection_time -
+            icu_intime,
+        "hours")]
   ## sepsis diagnosis within +/-24h to ICU admission
   .[suspected_infection_time >= icu_intime - hours(24) &
       suspected_infection_time <= icu_intime + hours(24)] %>% 
@@ -679,9 +684,14 @@ rec_7 <- sepsis_base_cohort_data %>%
       !is.na(suspected_infection_time) &
       culture_time >= suspected_infection_time &
       culture_time <= suspected_infection_time + hours(3) &
-      culture_time <= antibiotic_time]
+      culture_time <= antibiotic_time] %>% 
+  .[, rec_7_eligibility := fcase(
+    !is.na(rec_7_culture_before_antimicrobial),
+    "eligible",
+    
+    default = NA_character_)]
 
-## 8 RECOMMENDATION ------------------------------------------------------------
+## 8 RECOMMENDNA_character_## 8 RECOMMENDATION ------------------------------------------------------------
 rec8_label <- ssc_recommendations %>% 
   copy() %>% 
   .[rec_num == 8, rec_label]
@@ -733,7 +743,14 @@ rec_8 <- sepsis_base_cohort_data %>%
         hadm_id,
         stay_id,
         rec_8_lactate_measured_at_suspicion)] %>% 
-  unique()
+  unique() %>% 
+  .[, rec_8_eligibility := fcase(
+    
+    !is.na(rec_8_lactate_measured_at_suspicion),
+    "eligible",
+    
+    default = NA_character_
+  )]
 
 ## 10 RECOMMENDATION -----------------------------------------------------------
 ## Recommendation 10 targets patients with sepsis-induced hypoperfusion or 
@@ -1045,7 +1062,15 @@ rec_15 <- sepsis_base_cohort_data %>%
   .[, hours_to_icu :=
       lubridate::time_length(icu_intime - suspected_infection_time,
                              unit = "hours")] %>% 
-  .[, rec_15_icu_6h := hours_to_icu <= 6]
+  .[, rec_15_icu_6h := hours_to_icu <= 6] %>% 
+  .[, rec_15_eligibility := fcase(
+    
+    !is.na(rec_15_icu_6h),
+    "eligible",
+    
+    default = NA_character_
+  )] %>% 
+  .[, summary(rec_15_icu_6h)]
 
 
 ## 16 & 17 RECOMMENDATION -----------------------------------------------------------
@@ -1078,7 +1103,14 @@ rec_16_17 <- sepsis_base_cohort_data %>%
   .[, rec_16_17_antib_within_3h := !is.na(time_to_antib) &
       ## up to one hour before sepsis onset to account for delayed documentation
       time_to_antib >= -1 &
-      time_to_antib <= 3]
+      time_to_antib <= 3] %>% 
+  .[, rec_16_17_eligbility := fcase(
+    
+    !is.na(rec_16_17_antib_within_1h),
+    "eligible",
+    
+    default = NA_character_
+  )]
   
 # ## 17 RECOMMENDATION 
 # rec17_label <- ssc_recommendations %>% 
@@ -2778,15 +2810,15 @@ summary(pf_sf_ratios$sf_ratio)
 #                          "unilateral",
 #                          "focal")
 # 
-# ## Define proxy definition for bilateral chest opacities                       
-# bilateral_chest_opacities_proxy <- all_radiologyevents %>% 
-#   copy() %>% 
-#   .[, text_lower := str_to_lower(fifelse(is.na(text), "", text))] %>% 
+# ## Define proxy definition for bilateral chest opacities
+# bilateral_chest_opacities_proxy <- all_radiologyevents %>%
+#   copy() %>%
+#   .[, text_lower := str_to_lower(fifelse(is.na(text), "", text))] %>%
 #   ## chest imaging only
 #   .[grepl(paste(chest_patterns,
 #                 collapse = "|"),
 #           text_lower,
-#           ignore.case = TRUE)] %>% 
+#           ignore.case = TRUE)] %>%
 #   ## raw positive signal
 #   .[, bilateral_abnormality_raw := 
 #       grepl(paste(bilateral_patterns,
@@ -2823,6 +2855,26 @@ summary(pf_sf_ratios$sf_ratio)
 #         any_bilateral_chest_opacities = TRUE),
 #       by = .(subject_id, 
 #              hadm_id)]
+
+## Define proxy definition for bilateral chest opacities
+ards_note <- all_radiologyevents %>%
+  copy() %>%
+  .[grepl("INDICATION:",
+          text,
+          ignore.case = FALSE) &
+      grepl("CHEST RADIOGRAPH|CHEST \\(PA AND LAT\\)|FRONTAL CHEST RADIOGRAPH|PORTABLE AP CHEST",
+            text,
+            ignore.case = TRUE)] %>% 
+  .[, indication := sub(
+      "(?s).*?INDICATION:\\s*(.*?)\\n\\n[A-Z][A-Z /()\\-]+:.*",
+      "\\1",
+      text,
+      perl = TRUE)] %>% 
+  .[, text := NULL] %>% 
+  .[grepl("ARDS|AHRF",
+          indication,
+          ignore.case = FALSE)]
+          
 
 ## Combine results into AHRF and ARDS proxy
 ahrf_ards_proxies <- resp_support_events %>% 
@@ -3470,7 +3522,7 @@ rec_71 <- sepsis_base_cohort_data %>%
         all.x = TRUE,
         all.y = FALSE) %>%
   .[, ards_timing := tv_hour >= ards_onset_time - hours(1) &
-      tv_hour <= ards_onset_time + hours(24)] 
+      tv_hour <= ards_onset_time + hours(24)] %>% 
   .[order(tv_hour),
     .SD[1],
     by = .(subject_id,
@@ -3602,7 +3654,7 @@ rec79_label <- ssc_recommendations %>%
 ## Corticosteroid administration
 ## Prednisone & prednisolone are oral corticosteroids --> not IV
 ## Acetate steroids are not administered intravenously
-corticosteroid_events <- corticosteroid_emar_details %>% 
+corticosteroid_events <- corticosteroid_emar_icu %>% 
   copy() %>% 
   .[event_txt %in% c("Administered",
                      "Delayed Administration",
@@ -3738,6 +3790,9 @@ diuretic_itemids <- d_items %>%
 ## Diuretic administration
 diuretic_events <- all_inputevents %>% 
   copy() %>% 
+  ## only patients in sepsis base cohort
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  ## Diuretics item IDs
   .[itemid %in% diuretic_itemids$itemid] %>%
   merge(.,
         diuretic_itemids[, .(itemid,
@@ -3775,6 +3830,9 @@ extracorporeal_fluid_removal_itemids <- chart_itemids %>%
 ## Extracorporeal fluid removal events
 extracorporeal_fluid_removal_events <- all_chartevents %>% 
   copy() %>% 
+  ## only patients in sepsis base cohort
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  ## Extracorporeal fluid removal item IDs
   .[itemid %in% extracorporeal_fluid_removal_itemids$itemid] %>% 
   merge(.,
         extracorporeal_fluid_removal_itemids[, .(itemid,
@@ -3811,6 +3869,9 @@ fluid_bolus_itemids <- d_items %>%
 ## Fluid bolus events (bedside resuscitation)
 fluid_bolus_hourly <- all_inputevents %>% 
   copy() %>% 
+  ## only patients in sepsis base cohort
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  ## fluid bolus item IDs
   .[itemid %in% fluid_bolus_itemids$itemid] %>% 
   .[amount >= 250] %>% 
   .[, chart_hour := lubridate::floor_date(starttime,
@@ -3979,7 +4040,17 @@ rec_89 <- sepsis_base_cohort_data %>%
         post_resuscitation_time,
         first_fluid_removal_time = fluid_removal_time,
         first_fluid_removal_detail = fluid_removal_detail)] %>% 
-  .[, rec_89_active_fluid_removal := !is.na(first_fluid_removal_time)]
+  .[, rec_89_active_fluid_removal := !is.na(first_fluid_removal_time)] %>% 
+  .[, rec_89_eligibility := fcase(
+    
+    !is.na(rec_89_active_fluid_removal),
+    "eligible",
+    
+    septic_shock_proxy == FALSE | is.na(septic_shock_proxy),
+    "no septic shock or unknown",
+    
+    default = NA_character_
+  )]
 
 
 ## 90 RECOMMENDATION -----------------------------------------------------------
@@ -3997,6 +4068,9 @@ rbc_transfusion_itemids <- d_items %>%
 ## RBC transfusions
 rbc_transfusion_events <- all_inputevents %>% 
   copy() %>% 
+  ## only patients in sepsis base cohort
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  ## RBC transfusion item IDs
   .[itemid %in% rbc_transfusion_itemids$itemid] %>% 
   .[!is.na(amount) & amount > 0] %>% 
   .[, .(stay_id,
@@ -4013,6 +4087,9 @@ hemoglobin_itemid <- d_items %>%
 ## Hemoglobin measurements
 hemoglobin_events <- all_chartevents %>% 
   copy() %>% 
+  ## only patients in sepsis base cohort
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  ## Hemoglobin item ID
   .[itemid == hemoglobin_itemid$itemid] %>% 
   .[!is.na(valuenum)] %>% 
   .[valuenum >= 3 & valuenum <= 20] %>% 
@@ -4037,8 +4114,14 @@ pre_transfusion_hb <- rbc_transfusion_events %>%
            transfusion_time)]
 
 ## Classify transfusion threshold
-rec_90 <- pre_transfusion_hb %>% 
+rec_90 <- sepsis_base_cohort_data %>% 
   copy() %>% 
+  merge(.,
+        pre_transfusion_hb,
+        by = "stay_id",
+        all.x = TRUE,
+        all.y = FALSE,
+        allow.cartesian = TRUE) %>% 
   .[, transfusion_strategy := fcase(
     hemoglobin < 7,
     "Restrictive",
@@ -4048,24 +4131,39 @@ rec_90 <- pre_transfusion_hb %>%
     "Intermediate",
     default = NA_character_
   )] %>% 
-   merge(.,
-         sepsis_base_cohort_data[, .(subject_id,
-                                     hadm_id,
-                                     stay_id,
-                                     suspected_infection_time)] %>% 
-           unique(),
-         by = "stay_id",
-         all.x = TRUE,
-         all.y = FALSE) %>% 
   ## use first transfusion after sepsis onset
-  .[transfusion_time >= suspected_infection_time] %>% 
-  .[order(transfusion_time),
+  .[, transfusion_after_sepsis := transfusion_time >= suspected_infection_time] %>% 
+  .[order(-as.numeric(transfusion_after_sepsis),
+          transfusion_time),
     .SD[1],
     by = stay_id] %>% 
-  .[, rec_90_restrictive_transfusion := hemoglobin < 7]
+  .[, rec_90_restrictive_transfusion := fcase(
+    transfusion_after_sepsis == TRUE &
+      transfusion_strategy == "Restrictive",
+    TRUE,
+    
+    transfusion_after_sepsis == TRUE &
+      transfusion_strategy %in% c("Liberal",
+                                  "Intermediate"),
+    FALSE,
+    
+    default = NA)] %>% 
+  .[, rec_90_eligibility := fcase(
+    
+    !is.na(rec_90_restrictive_transfusion),
+    "eligible",
+    
+    transfusion_after_sepsis == FALSE |
+      is.na(transfusion_after_sepsis),
+    "no blood transfusion after sepsis onset",
+    
+    default = NA_character_
+  )]
 
 
 ## 91 RECOMMENDATION -----------------------------------------------------------
+## cannot be assessed within the first 24h
+## was excluded in previous paper, due to this reason
 rec91_label <- ssc_recommendations %>% 
   copy() %>% 
   .[rec_num == 91, rec_label]
@@ -4080,14 +4178,26 @@ enteral_nutrition_itemid <- d_items %>%
 ## Enteral nutrition administration
 enteral_nutrition_events <- all_ingredients %>% 
   copy() %>% 
+  ## only patients in sepsis base cohort
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  ## Enteral nutrition item ID
   .[itemid == enteral_nutrition_itemid$itemid] %>% 
   ## clinically meaninful feed intitiation
-  .[amount >= 50] %>% 
+  .[amount > 0] %>% 
   .[, .(subject_id,
         hadm_id,
         stay_id,
         enteral_time = starttime,
-        enteral_amount = amount)]
+        enteral_amount = amount,
+        enteral_rate = rateuom)]
+
+## Check for outliers
+summary(enteral_nutrition_events$enteral_amount)
+
+## Check distribution of enteral nutrition amount
+quantile(enteral_nutrition_events$enteral_amount,
+         probs = c(0.01, 0.1, 0.5, 0.75, 0.9, 0.95, 0.99),
+         na.rm = FALSE)
 
 ## Enteral nutrition within 72 hours of sepsis onset
 rec_91 <- sepsis_base_cohort_data %>% 
@@ -4102,19 +4212,43 @@ rec_91 <- sepsis_base_cohort_data %>%
         by = c("subject_id",
                "hadm_id",
                "stay_id"),
-        all.x = FALSE,
-        all.y = TRUE) %>% 
-  .[enteral_time >= suspected_infection_time] %>% 
-  .[, .(first_enteral_time = min(enteral_time,
-                                 na.rm = TRUE)),
+        all.x = TRUE,
+        all.y = FALSE) %>% 
+  .[, enteral_within_72h := enteral_time >= suspected_infection_time - hours(1) &
+      enteral_time <= suspected_infection_time + hours(72)] %>% 
+  .[order(subject_id,
+          hadm_id,
+          stay_id,
+          -as.numeric(enteral_within_72h),
+          enteral_time)] %>% 
+  ## select first enteral feeding time after sepsis onset
+  .[, .SD[1],
     by = .(subject_id,
            hadm_id,
-           stay_id,
-           suspected_infection_time)] %>% 
-  .[, time_to_enteral_hours := as.numeric(difftime(first_enteral_time,
-                                                suspected_infection_time,
-                                                units = "hours"))] %>% 
-  .[, rec_91_early_enteral_nutrition := time_to_enteral_hours <= 72]
+           stay_id)] %>%
+  .[, time_to_enteral_hours :=
+      abs(lubridate::time_length(enteral_time -
+                                 suspected_infection_time,
+                                 "hours"))] %>% 
+  .[, rec_91_early_enteral_nutrition := fcase(
+    
+    enteral_within_72h == TRUE &
+      time_to_enteral_hours <= 72,
+    TRUE,
+    
+    enteral_within_72h == FALSE |
+      time_to_enteral_hours <= 72 |
+      is.na(enteral_within_72h) |
+      is.na(time_to_enteral_hours),
+    FALSE,
+    
+    default = NA)] %>% 
+  .[, rec_91_eligibility := fcase(
+    
+    !is.na(rec_91_early_enteral_nutrition),
+    "eligible",
+    
+    default = NA_character_)]
 
 ## 92 RECOMMENDATION -----------------------------------------------------------
 rec92_label <- ssc_recommendations %>% 
@@ -4132,6 +4266,9 @@ insulin_itemids <- d_items %>%
 ## Insulin administration
 insulin_events <- all_inputevents %>% 
   copy() %>% 
+  ## only patients in sepsis base cohort
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  ## Insulin item IDs
   .[itemid %in% insulin_itemids$itemid] %>% 
   .[!is.na(amount) & amount > 0] %>% 
   merge(.,
@@ -4157,12 +4294,44 @@ glucose_itemids <- d_items %>%
 ## Glucose measuremnts
 glucose_events <- all_chartevents %>% 
   copy() %>% 
+  ## only patients in sepsis base cohort
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  ## Glucose item IDs
   .[itemid %in% glucose_itemids$itemid] %>% 
   .[!is.na(valuenum)] %>% 
   .[valuenum >= 20 & valuenum <= 1000] %>% 
   .[, .(stay_id,
         glucose_time = charttime,
-        glucose_mg_dl = valuenum)]
+        glucose_mg_dl = valuenum)] %>% 
+  merge(.,
+        sepsis_base_cohort_data[, .(subject_id,
+                                    hadm_id,
+                                    stay_id,
+                                    suspected_infection_time)],
+        by = "stay_id",
+        all = FALSE) %>% 
+  ## account for delayed documentation
+  .[glucose_time >= suspected_infection_time - hours(1)] %>% 
+  ## Define hyperclycemia: glucose >= 180mg/dl
+  .[, hyperglycemia_180 := glucose_mg_dl >= 180]
+
+## Select first hyperglycemic event
+first_glucose_180 <- glucose_events %>% 
+  copy() %>% 
+  .[hyperglycemia_180 == TRUE] %>% 
+  .[order(subject_id,
+          hadm_id,
+          stay_id,
+          glucose_time),
+    .SD[1],
+    by = .(subject_id,
+           hadm_id,
+           stay_id)] %>% 
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        first_glucose_180_time = glucose_time,
+        first_glucose_180_value = glucose_mg_dl)]
 
 ## First insulin after sepsis onset
 first_insulin <- insulin_events %>% 
@@ -4175,30 +4344,75 @@ first_insulin <- insulin_events %>%
           unique(),
         by = "stay_id",
         all = FALSE) %>% 
-  .[insulin_time >= suspected_infection_time] %>% 
+  .[insulin_time >= suspected_infection_time - hours(1)] %>% 
   .[order(insulin_time),
     .SD[1],
     by = .(subject_id,
            hadm_id,
            stay_id)]
 
-## Last glucose within 6h before first insulin
-rec_92 <- first_insulin %>% 
+## First insulin after first glucose >= 180 mg/dL
+rec_92 <- sepsis_base_cohort_data %>% 
   copy() %>% 
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        suspected_infection_time)] %>% 
+  unique() %>% 
   merge(.,
-        glucose_events,
-        by = "stay_id",
+        first_glucose_180,
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id"),
+        all.x = TRUE,
+        all.y = FALSE) %>% 
+  merge(.,
+        insulin_events,
+        by = c("stay_id"),
+        all.x = TRUE,
+        all.y = FALSE,
         allow.cartesian = TRUE) %>% 
-  .[glucose_time <= insulin_time &
-      glucose_time >= insulin_time - hours(6)] %>% 
-  .[order(stay_id,
-          insulin_time,
-          -glucose_time),
-    .SD[1],
-    by = .(subject_id,
-           hadm_id,
-           stay_id)] %>% 
-  .[, rec_92_insulin_at_glucose_180 := glucose_mg_dl >= 180]
+ ## keep insulin administration after the first qualifying glucose
+.[, insulin_after_glucose_180 := 
+    !is.na(insulin_time) &
+    !is.na(first_glucose_180_time) &
+    insulin_time >= first_glucose_180_time - hours(1) &
+    ## insulin must be administerd within 6h of hyperglycemia
+    insulin_time <= first_glucose_180_time + hours(6)] %>% 
+.[order(subject_id,
+        hadm_id,
+        stay_id,
+        -as.integer(insulin_after_glucose_180),
+        insulin_time)] %>% 
+  .[, .SD[1],
+  by = .(subject_id,
+         hadm_id,
+         stay_id)] %>% 
+  .[, time_to_insulin_after_glucose := 
+      lubridate::time_length(
+        insulin_time -
+          first_glucose_180_time,
+        "hours")] %>% 
+  .[, rec_92_insulin_started_at_glucose_180 := fcase(
+    
+    !is.na(first_glucose_180_time) &
+      insulin_after_glucose_180 == TRUE,
+    TRUE,
+    
+    !is.na(first_glucose_180_time) &
+      insulin_after_glucose_180 == FALSE,
+    FALSE,
+    
+    default = NA)] %>% 
+  .[, rec_92_eligibility := fcase(
+    
+    !is.na(rec_92_insulin_started_at_glucose_180),
+    "eligible",
+    
+    is.na(first_glucose_180_time),
+    "no glucose value >= 180",
+    
+    default = NA_character_)]
 
 ## 96 RECOMMENDATION -----------------------------------------------------------
 rec96_label <- ssc_recommendations %>% 
@@ -4221,16 +4435,49 @@ ph_itemids <- d_items %>%
 ## Define severe acidemia
 severe_acidemia_events <- all_chartevents %>% 
   copy() %>% 
+  ## only patients in sepsis base cohort
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  ## pH item ID
   .[itemid == ph_itemids$itemid] %>% 
-  .[!is.na(valuenum)] %>% 
-  ## remove obvious outliers / data entry errors
-  .[valuenum >= 6.5 & valuenum <= 8.0] %>% 
-  .[, severe_acidemia := valuenum <= 7.2] %>% 
+  .[!is.na(valuenum)]
+  
+## Check for outliers
+summary(severe_acidemia_events$valuenum)
+
+## Analyze distribution
+quantile(severe_acidemia_events$valuenum,
+         probs = c(0.1, 0.5, 0.75, 0.9, 0.95, 0.99),
+         na.rm = TRUE)
+
+## Remove obvious outliers
+# severe_acidemia_events <- 
+severe_acidemia_events <-
+  severe_acidemia_events %>% 
+  copy() %>% 
+.[valuenum >= 6.5 & valuenum <= 8.0] %>% 
+.[, severe_acidemia := valuenum <= 7.2] %>% 
   .[, .(stay_id,
         acidemia_time = charttime,
         ph = valuenum,
         severe_acidemia)] %>% 
-  unique()
+  unique() %>% 
+## select first severe acidemia event per patient
+merge(.,
+      sepsis_base_cohort_data[, .(subject_id,
+                                  hadm_id,
+                                  stay_id,
+                                  suspected_infection_time,
+                                  septic_shock_proxy)],
+      by = "stay_id",
+      all = FALSE)
+
+## Item IDs for serum cystatin
+serum_cystatin_itemid <- 
+  lab_itemids %>% 
+  copy() %>% 
+  .[grepl("cystatin|scr",
+          label,
+          ignore.case = TRUE)]
 
 ## Item ID for serum creatinine
 serum_creatinine_itemid <- d_items %>% 
@@ -4248,48 +4495,189 @@ serum_creatinine_itemid <- d_items %>%
 ## Serum creatinine measurements
 creatinine_events <- all_chartevents %>% 
   copy() %>% 
+  ## only patients in sepsis base cohort
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  ## Serum creatinine item ID
   .[itemid == serum_creatinine_itemid$itemid] %>% 
   .[!is.na(valuenum)] %>% 
   ## upper bound for serum creatinine
-  .[valuenum > 0 & valuenum <= 20] %>% 
   .[, .(stay_id,
         creatinine_time = charttime,
-        creatinine = valuenum)] %>% 
-  merge(.,
-        sepsis_base_cohort_data,
-        by = "stay_id",
-        all = FALSE)
+        creatinine = valuenum,
+        creatinine_unit = valueuom)] 
 
-## Create input dataset for detect_aki function
-aki_dt <- creatinine_events %>% 
+## Check for outliers
+summary(creatinine_events$creatinine)
+
+## Analyze distribution
+quantile(creatinine_events$creatinine,
+         probs = c(0.1, 0.5, 0.75, 0.9, 0.95, 0.99),
+         na.rm = TRUE)
+
+## Remove obvious outliers
+creatinine_events <- creatinine_events %>% 
+  copy() %>% 
+  ## use 40 mg/dL as a data quality threshold
+  ## after inspecting the distribution
+  .[creatinine > 0 & creatinine <= 40] 
+
+## Serum creatinine values were restricted to the range 0–40 mg/dL. 
+## Following inspection of the data distribution, values above 40 mg/dL 
+## were considered implausible data entry or recording errors (e.g., isolated 
+## values of 80, 117, 159, and 999999 mg/dL), whereas repeated measurements up 
+## to approximately 32 mg/dL were retained because they were internally consistent
+## and considered clinically plausible in patients with severe kidney failure.
+  
+
+## Define baseline creatinine value per patient before or at sepsis onset
+creatinine_baseline <- creatinine_events %>% 
    copy() %>% 
-  .[septic_shock_proxy == TRUE] %>% 
-  merge(.,
-        severe_acidemia_events[, .(stay_id,
-                                   severe_acidemia,
-                                   acidemia_time)] %>% 
-          unique(),
-        by = "stay_id",
-        all = FALSE,
-        allow.cartesian = TRUE) %>% 
-  .[severe_acidemia == TRUE & acidemia_time >= septic_shock_onset_time] %>% 
-  .[, .(stay_id,
-        creatinine_time,
-        creatinine)] %>% 
-  unique() %>% 
-    setnames(c("stay_id",
-               "creatinine_time",
-               "creatinine"),
-             c("ID",
-               "COLLECTED_DT",
-               "RESULT")) %>% 
-    .[, BIRTH_DT := NA_Date_]
+   merge(.,
+         sepsis_base_cohort_data[, .(subject_id,
+                                     hadm_id,
+                                     stay_id,
+                                     suspected_infection_time)],
+         by = "stay_id",
+         all = FALSE) %>% 
+   ## only values before or at sepsis onset
+   ## acount for documentation delay
+   .[creatinine_time <= suspected_infection_time &
+       ## restrict to 7 days before sepsis onset as per KDIGO AKI definition
+       creatinine_time >= suspected_infection_time - days(7)] %>% 
+   .[, time_before_onset := 
+       lubridate::time_length(
+         creatinine_time -
+         suspected_infection_time,
+         "hours")] %>% 
+   .[order(subject_id,
+           hadm_id,
+           stay_id,
+           time_before_onset),
+     .SD[1],
+     by = .(subject_id,
+            hadm_id,
+            stay_id)] %>% 
+   .[, .(subject_id,
+         hadm_id,
+         stay_id,
+         baseline_creatinine_time = creatinine_time,
+         baseline_creatinine = creatinine)]
 
+## Calculate creatinine change to baseline
+## AKI criteria fulfilled when creatinine has increased  
+## at least x1.5 compared to baseline
+ creatinine_change_to_baseline <- creatinine_events %>% 
+   copy() %>% 
+   merge(.,
+         sepsis_base_cohort_data[, .(subject_id,
+                                     hadm_id,
+                                     stay_id,
+                                     suspected_infection_time)],
+         by = "stay_id",
+         all = FALSE) %>% 
+   merge(.,
+         creatinine_baseline,
+         by = c("subject_id",
+                "hadm_id",
+                "stay_id"),
+         all = FALSE) %>% 
+   ## compare creatinine values after sepsis onset to baseline value
+   ## acount for delayed documentation
+   .[creatinine_time >= suspected_infection_time - hours(1)] %>% 
+   .[, increase_factor := creatinine / baseline_creatinine] %>% 
+   .[, creatinine_aki_stage := fcase(
+     
+     increase_factor >= 1.5 &
+       increase_factor < 2,
+     "stage 1",
+     
+     increase_factor >= 2 &
+       increase_factor < 3,
+     "stage 2",
+     
+     increase_factor >= 3,
+     "stage 3",
+    
+     increase_factor < 1.5,
+     NA,
+     
+     default = NA_character_)] %>% 
+   .[, creatinine_aki_baseline_stage := 
+       factor(creatinine_aki_stage,
+              levels = c("stage 3",
+                         "stage 2",
+                         "stage 1"))] %>% 
+   .[order(subject_id,
+           hadm_id,
+           stay_id,
+           creatinine_aki_baseline_stage),
+     .SD[1],
+     by = .(subject_id,
+            hadm_id,
+            stay_id)]
+ 
+## Creatinine values after sepsis onset
+creatinine_after_sepsis_onset <- 
+   creatinine_events %>% 
+   copy() %>% 
+   merge(.,
+         sepsis_base_cohort_data[, .(subject_id,
+                                     hadm_id,
+                                     stay_id,
+                                     suspected_infection_time)],
+         by = "stay_id",
+         all = FALSE) %>% 
+   .[creatinine_time >= suspected_infection_time - hours(1)]
+ 
+## Calculate difference between creatinine values within 48h of each other
+## AKI criteria fulfilled when creatinine has increased >= 0.3 mg/dL within 48h
+creatinine_change_48h <- merge(
+   creatinine_after_sepsis_onset[, .(subject_id,
+                                     hadm_id,
+                                     stay_id,
+                                     creatinine_x = creatinine,
+                                     creatinine_time_x = creatinine_time)],
+   creatinine_after_sepsis_onset[, .(subject_id,
+                                     hadm_id,
+                                     stay_id,
+                                     creatinine_y = creatinine,
+                                     creatinine_time_y = creatinine_time)],
+   by = c("subject_id",
+          "hadm_id",
+          "stay_id"),
+   all = TRUE,
+   allow.cartesian = TRUE) %>% 
+   ## keep only pairs within 48h of each other 
+   .[creatinine_time_y > creatinine_time_x &
+     lubridate::time_length(
+       creatinine_time_y -
+       creatinine_time_x,
+     "hours") <= 48] %>% 
+   .[, creatinine_diff := creatinine_y - creatinine_x] %>% 
+   .[, creatinine_aki_diff_stage := fcase(
+     
+     creatinine_y >= 4,
+     "stage 3",
+     
+     creatinine_diff >= 0.3,
+     "stage 1",
+     
+     default = NA_character_)] %>% 
+  .[, creatinine_aki_diff_stage := 
+      factor(creatinine_aki_diff_stage,
+             levels = c("stage 3",
+                        "stage 1"))] %>% 
+  .[order(subject_id,
+          hadm_id,
+          stay_id,
+          creatinine_aki_diff_stage)] %>% 
+  .[, .SD[1],
+    by = .(subject_id,
+           hadm_id,
+           stay_id)]
 
-## Determine AKI events
-aki_creatinine_events <- detect_aki(aki_dt) %>% 
-  setDT()
-
+## Calculate hourly urine output and length or oliguria / anuria
+## AKI criteria fulfilled if oliguria / anuria persist long enough 
 ## Urinary output itemids
 urine_output_itemids <- d_items %>% 
   copy() %>%
@@ -4305,144 +4693,251 @@ urine_output_itemids <- d_items %>%
 ## Define oliguria as < 0.5mL/kg for 6 consecutive hours
 urine_output_hourly <- all_outputevents %>% 
   copy() %>% 
+  ## only patients in sepsis base cohort
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  ## urinary output item IDs
+  .[itemid %in% urine_output_itemids$itemid] %>% 
   merge(.,
         sepsis_base_cohort_data[, .(subject_id,
                                     hadm_id,
                                     stay_id,
-                                    suspected_infection_time)],
+                                    suspected_infection_time,
+                                    icu_intime,
+                                    icu_outtime,
+                                    weight_kg_for_fluids)],
         by = c("subject_id",
                "hadm_id",
                "stay_id"),
         all = FALSE) %>% 
-  .[itemid %in% urine_output_itemids$itemid] %>% 
-  # .[!is.na(value) & value >= 0] %>% 
+  .[!is.na(value) & value >= 0] %>%
   .[, chart_hour := lubridate::floor_date(charttime,
                                           "hour")] %>% 
+  ## after sepsis onset, account for documentation delay
+  .[chart_hour >= suspected_infection_time - hours(1) &
+      chart_hour <= suspected_infection_time + hours(48)] %>% 
   .[, .(urine_output_ml = sum(value,
-                              na.rm = TRUE)),
+                            na.rm = TRUE),
+        weight_kg_for_fluids = first(weight_kg_for_fluids)),
     by = .(subject_id,
            hadm_id,
            stay_id,
-           chart_hour)] %>% 
-  .[, chart_day := lubridate::floor_date(chart_hour,
-                                         "days")] %>% 
+           chart_hour)]
+
+
+## Create complete hourly gird
+urine_hour_grid <- sepsis_base_cohort_data %>% 
+  copy() %>% 
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        weight_kg_for_fluids,
+        start_hour = 
+          lubridate::floor_date(suspected_infection_time -
+                                  hours(1),
+                                "hour"),
+        end_hour = 
+          lubridate::floor_date(suspected_infection_time +
+                                  hours(48),
+                                "hour"))] %>% 
+  .[, .(
+    chart_hour = seq(start_hour,
+                     end_hour,
+                     by = "hour")
+  ),
+  by = .(subject_id,
+         hadm_id,
+         stay_id,
+         weight_kg_for_fluids)]
+
+## Complete urine output 
+urine_output_complete <- urine_hour_grid %>% 
+  copy() %>% 
   merge(.,
-        daily_weight,
-        by = c("stay_id",
-               "chart_day"),
+        urine_output_hourly,
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id",
+               "weight_kg_for_fluids",
+               "chart_hour"),
         all.x = TRUE,
         all.y = FALSE) %>% 
-  .[, any_weight := any(!is.na(daily_weight)),
-    by = .(subject_id,
-           hadm_id,
-           stay_id)] %>% 
-  .[any_weight == TRUE] %>% 
+  .[, urine_output_ml := ifelse(
+    is.na(urine_output_ml),
+    0,
+    urine_output_ml)] %>% 
+  .[, urine_ml_kg_h := urine_output_ml / weight_kg_for_fluids] %>% 
+  .[, oliguric_0.5 := urine_ml_kg_h < 0.5] %>% 
+  .[, oliguric_0.3 := urine_ml_kg_h < 0.3] %>% 
+  .[, anuric := urine_output_ml == 0] %>% 
   .[order(subject_id,
           hadm_id,
           stay_id,
-          chart_hour)] %>% 
-  .[, daily_weight := nafill(daily_weight,
-                             type = "locf"),
+          chart_hour)] %>%
+  .[, run_0.5 := rleid(oliguric_0.5),
     by = .(subject_id,
            hadm_id,
-           stay_id)] %>% 
-  .[, daily_weight := nafill(daily_weight,
-                             type = "nocb"),
+           stay_id)] %>%
+  .[, run_0.3 := rleid(oliguric_0.3),
     by = .(subject_id,
            hadm_id,
-           stay_id)] %>% 
-  .[, urine_ml_kg_h := urine_output_ml / daily_weight] %>% 
-  .[, oliguric_0.5 := urine_ml_kg_h < 0.5] %>% 
-  .[, oliguric_0.3 := urine_ml_kg_h < 0.3] %>% 
-  .[, anuric := urine_ml_kg_h == 0] %>% 
-  .[, run_id_0.5 := rleid(oliguric_0.5),
+           stay_id)] %>%
+  .[, run_anuric := rleid(anuric),
     by = .(subject_id,
            hadm_id,
            stay_id)] %>% 
   .[oliguric_0.5 == TRUE,
-    `:=` (duration_0.5_h = .N,
-      start_time = min(chart_hour),
-      end_time = max(chart_hour)),
-      by = .(stay_id,
-             run_id_0.5)] %>% 
-    .[, run_id_0.3 := rleid(oliguric_0.3),
-      by = .(subject_id,
-             hadm_id,
-             stay_id)] %>% 
-    .[oliguric_0.3 == TRUE,
-      `:=` (duration_0.3_h = .N,
-            start_time = min(chart_hour),
-            end_time = max(chart_hour)),
-      by = .(stay_id,
-             run_id_0.3)] %>% 
-    .[, run_id_anuric := rleid(anuric),
-      by = .(subject_id,
-             hadm_id,
-             stay_id)] %>% 
-    .[anuric == TRUE,
-      `:=` (duration_anuric_h = .N,
-            start_time = min(chart_hour),
-            end_time = max(chart_hour)),
-      by = .(stay_id,
-             run_id_anuric)] %>% 
-  .[, aki_oliguria := fcase(
-    duration_0.5_h >= 6 & duration_0.5_h < 12,
-    "stage 1",
+    duration_0.5_h := .N,
+    by = .(subject_id,
+           hadm_id,
+           stay_id,
+           run_0.5)] %>%
+  .[oliguric_0.3 == TRUE,
+    duration_0.3_h := .N,
+    by = .(subject_id,
+           hadm_id,
+           stay_id,
+           run_0.3)] %>%
+  .[anuric == TRUE,
+    duration_anuric_h := .N,
+    by = .(subject_id,
+           hadm_id,
+           stay_id,
+           run_anuric)]
+
+## Collapse to patient-level
+aki_urine_output <- urine_output_complete %>% 
+  copy() %>% 
+  .[, aki_urine_output_stage := fcase(
+    
+    duration_0.3_h >= 24 |
+      duration_anuric_h >= 12,
+    "stage 3",
     
     duration_0.5_h >= 12,
     "stage 2",
     
-    duration_0.3_h >= 24 |
-      duration_anuric_h >= 12,
-    "stage 3"
-  )]
-
-## Acute kidney injury is defined according to KDIGO criteria.
-## Patients with KDIGO stage 2 or stage 3 AKI were considered to meet 
-## the severe AKI criterion specified in SSC Recommendation 96.
-
-## Severe AKI from creatinine
-aki_2_3_creatinine <- aki_creatinine_events %>% 
-  copy() %>% 
-  .[AKI_STAGE %in% c(2, 
-                     3)] %>% 
-  .[, .(stay_id = ID,
-        aki_time = COLLECTED_DT,
-        aki_stage = AKI_STAGE,
-        aki_source = "Creatinine")]
-
-## Severe AKI from urine output
-aki_2_3_urine <- urine_output_hourly %>% 
-  copy() %>% 
-  .[, aki_stage_urine := fcase(
-    duration_0.3_h >= 24 |
-      duration_anuric_h >= 12,
-    3,
-    
-    duration_0.5_h >= 12,
-    2,
-    
     duration_0.5_h >= 6,
-    1,
+    "stage 1",
     
-    default = NA_real_)] %>% 
-  .[aki_stage_urine %in% c(2,
-                           3)] %>% 
-  .[, .(stay_id,
-        aki_time = chart_hour,
-        aki_stage = aki_stage_urine,
-        aki_source = "Urine output")] %>% 
-  unique()
+    default = NA_character_)] %>% 
+  .[, aki_urine_output_stage := 
+      factor(aki_urine_output_stage,
+             levels = c("stage 3",
+                        "stage 2",
+                        "stage 1"))] %>% 
+  .[order(subject_id,
+          hadm_id,
+          stay_id,
+          aki_urine_output_stage,
+          chart_hour)] %>% 
+  .[, .SD[1],
+    by = .(subject_id,
+           hadm_id,
+           stay_id)]
+  # .[, `:=` (max_duration_0.5_h = max(duration_0.5_h,
+  #                               na.rm = TRUE),
+  #       max_duration_0.3_h = max(duration_0.3_h,
+  #                                na.rm = TRUE),
+  #       max_duration_anuric_h = max(duration_anuric_h,
+  #                                   na.rm = TRUE)),
+  #   by = .(subject_id,
+  #          hadm_id,
+  #          stay_id)] %>% 
+  # .[, `:=` (
+  #   max_duration_0.5_h = fifelse(is.infinite(max_duration_0.5_h),
+  #                                            0,
+  #                                            max_duration_0.5_h),
+  #   
+  #   max_duration_0.3_h = fifelse(is.infinite(max_duration_0.3_h),
+  #                                            0,
+  #                                            max_duration_0.3_h),
+  #   
+  #   max_duration_anuric_h = fifelse(is.infinite(max_duration_anuric_h),
+  #                                             0,
+  #                                             max_duration_anuric_h))] %>% 
+  # .[, aki_urine_output_stage := fcase(
+  # 
+  #   max_duration_0.3_h >= 24 |
+  #     max_duration_anuric_h >= 12,
+  #   "stage 3",
+  # 
+  #   max_duration_0.5_h >= 12,
+  #   "stage 2",
+  # 
+  #   max_duration_0.5_h >= 6,
+  #   "stage 1",
+  # 
+  #   default = NA_character_)]
 
-## Combine creatinine and urine output AKI events
-aki_2_3_events <- rbindlist(
-  list(
-    aki_2_3_creatinine,
-    aki_2_3_urine
-  ),
-  fill = TRUE
-) %>% 
-  unique()
+## Define KDIGO AKI criteria
+aki_classification <- sepsis_base_cohort_data %>% 
+  copy() %>% 
+  ## Creatinine change to baseline
+  merge(.,
+        creatinine_change_to_baseline[, .(subject_id,
+                                          hadm_id,
+                                          stay_id,
+                                          creatinine_baseline_time = creatinine_time,
+                                          creatinine_aki_baseline_stage)],
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id"),
+        all.x = TRUE,
+        all.y = FALSE) %>% 
+  ## Creatinine change wihtin 48h
+  merge(.,
+        creatinine_change_48h[, .(subject_id,
+                                  hadm_id,
+                                  stay_id,
+                                  creatinine_time_y,
+                                  creatinine_diff,
+                                  creatinine_aki_diff_stage)] %>% 
+          unique(),
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id"),
+        all.x = TRUE,
+        all.y = FALSE) %>% 
+  ## Urine oliguria / anuria
+  merge(.,
+        aki_urine_output[, .(subject_id,
+                             hadm_id,
+                             stay_id,
+                             aki_urine_output_stage,
+                             aki_urine_time = chart_hour)],
+                             
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id"),
+        all.x = TRUE,
+        all.y = FALSE) %>% 
+  .[, aki_stage := fcase(
+    
+    creatinine_aki_baseline_stage == "stage 3" |
+      creatinine_aki_diff_stage == "stage 3" |
+      aki_urine_output_stage == "stage 3",
+    "stage 3",
+    
+    creatinine_aki_baseline_stage == "stage 2" |
+      creatinine_aki_diff_stage == "stage 2" |
+      aki_urine_output_stage == "stage 2",
+    "stage 2",
+    
+    creatinine_aki_baseline_stage == "stage 1" |
+      creatinine_aki_diff_stage == "stage 1" |
+      aki_urine_output_stage == "stage 1",
+    "stage 1",
+    
+    default = NA_character_)] %>% 
+  .[, aki_stage_time := 
+      min(creatinine_baseline_time,
+          creatinine_time_y,
+          aki_urine_time,
+          na.rm = TRUE),
+    by = .(subject_id,
+           hadm_id,
+           stay_id)]
+
 
 ## Sodium bicarbonate item IDs
 sodium_bicarb_itemids <- d_items %>% 
@@ -4457,6 +4952,9 @@ sodium_bicarb_itemids <- d_items %>%
 ## Sodium bicarbonate admininstration
 sodium_bicarb_events <- all_inputevents %>% 
   copy() %>% 
+  ## only patients in sepsis base cohort
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  ## Sodium bicarbonate therapy item IDs
   .[itemid %in% sodium_bicarb_itemids$itemid] %>% 
   merge(.,
         sodium_bicarb_itemids[, .(itemid,
@@ -4471,10 +4969,22 @@ sodium_bicarb_events <- all_inputevents %>%
         bicarbonate_amount = amount,
         bicarbonate_unit = amountuom)]
 
+## Check for outliers
+summary(sodium_bicarb_events$bicarbonate_amount)
+
+## Analyze distribution
+quantile(sodium_bicarb_events$bicarbonate_amount,
+         probs = c(0.1, 0.5, 0.75, 0.9, 0.95, 0.99),
+         na.rm = TRUE)
+
 ## Define recommendation 96
 rec_96 <- sepsis_base_cohort_data %>% 
   copy() %>% 
-  .[septic_shock_proxy == TRUE] %>% 
+  merge(.,
+        aki_classification[, .(aki_stage,
+                               aki_stage_time)],
+        )
+  # .[septic_shock_proxy == TRUE] %>% 
   merge(.,
         severe_acidemia_events[severe_acidemia == TRUE],
         by = "stay_id",
@@ -4554,7 +5064,8 @@ DT_ssc_encoded <- sepsis_base_cohort_data %>%
         rec_10[, .(subject_id,
                    hadm_id,
                    stay_id,
-                   rec_10_crystalloid_within_3h)] %>% 
+                   rec_10_crystalloid_within_3h,
+                   rec_10_eligibility)] %>% 
           unique(),
         by = c("subject_id",
                "hadm_id",
@@ -4566,7 +5077,8 @@ DT_ssc_encoded <- sepsis_base_cohort_data %>%
         rec_12[, .(subject_id,
                    hadm_id,
                    stay_id,
-                   rec_12_vaso_before_cvc)] %>% 
+                   rec_12_vaso_before_cvc,
+                   rec_12_eligibility)] %>% 
           unique(),
         by = c("subject_id",
                "hadm_id",
@@ -4578,7 +5090,8 @@ DT_ssc_encoded <- sepsis_base_cohort_data %>%
         rec_13[, .(subject_id,
                    hadm_id,
                    stay_id,
-                   rec_13_map_target_65)] %>% 
+                   rec_13_map_target_65,
+                   rec_13_eligibility)] %>% 
           unique(),
         by = c("subject_id",
                "hadm_id",
@@ -4742,97 +5255,97 @@ DT_ssc_encoded <- sepsis_base_cohort_data %>%
         all.x = TRUE,
         all.y = FALSE,
         allow.cartesian = FALSE) %>% 
-  merge(.,
-        rec_71[, .(subject_id,
-                   hadm_id,
-                   stay_id,
-                   rec_71_high_tidal_volume,
-                   rec_71_low_tidal_volume)] %>% 
-          unique(),
-        by = c("subject_id",
-               "hadm_id",
-               "stay_id"),
-        all.x = TRUE,
-        all.y = FALSE,
-        allow.cartesian = FALSE) %>% 
-  merge(.,
-        rec_72[, .(subject_id,
-                   hadm_id,
-                   stay_id,
-                   rec_72_tidal_volume_6_8,
-                   rec_72_tower_tidal_volume_4_to_less_6)] %>% 
-          unique(),
-        by = c("subject_id",
-               "hadm_id",
-               "stay_id"),
-        all.x = TRUE,
-        all.y = FALSE,
-        allow.cartesian = FALSE) %>% 
-  merge(.,
-        rec_79[, .(subject_id,
-                   hadm_id,
-                   stay_id,
-                   rec_79_iv_corticosteroids)] %>% 
-          unique(),
-        by = c("subject_id",
-               "hadm_id",
-               "stay_id"),
-        all.x = TRUE,
-        all.y = FALSE,
-        allow.cartesian = FALSE) %>% 
+  # merge(.,
+  #       rec_71[, .(subject_id,
+  #                  hadm_id,
+  #                  stay_id,
+  #                  rec_71_high_tidal_volume,
+  #                  rec_71_low_tidal_volume)] %>% 
+  #         unique(),
+  #       by = c("subject_id",
+  #              "hadm_id",
+  #              "stay_id"),
+  #       all.x = TRUE,
+  #       all.y = FALSE,
+  #       allow.cartesian = FALSE)
+  # merge(.,
+  #       rec_72[, .(subject_id,
+  #                  hadm_id,
+  #                  stay_id,
+  #                  rec_72_tidal_volume_6_8,
+  #                  rec_72_tower_tidal_volume_4_to_less_6)] %>% 
+  #         unique(),
+  #       by = c("subject_id",
+  #              "hadm_id",
+  #              "stay_id"),
+  #       all.x = TRUE,
+  #       all.y = FALSE,
+  #       allow.cartesian = FALSE) %>% 
+  # merge(.,
+  #       rec_79[, .(subject_id,
+  #                  hadm_id,
+  #                  stay_id,
+  #                  rec_79_iv_corticosteroids)] %>% 
+  #         unique(),
+  #       by = c("subject_id",
+  #              "hadm_id",
+  #              "stay_id"),
+  #       all.x = TRUE,
+  #       all.y = FALSE,
+  #       allow.cartesian = FALSE) %>% 
   merge(.,
         rec_89[, .(subject_id,
                    hadm_id,
                    stay_id,
-                   rec_89_active_fluid_removal)] %>% 
+                   rec_89_active_fluid_removal)] %>%
           unique(),
         by = c("subject_id",
                "hadm_id",
                "stay_id"),
         all.x = TRUE,
         all.y = FALSE,
-        allow.cartesian = FALSE) %>% 
+        allow.cartesian = FALSE) %>%
   merge(.,
         rec_90[, .(subject_id,
                    hadm_id,
                    stay_id,
-                   rec_90_restrictive_transfusion)] %>% 
+                   rec_90_restrictive_transfusion)] %>%
           unique(),
         by = c("subject_id",
                "hadm_id",
                "stay_id"),
         all.x = TRUE,
         all.y = FALSE,
-        allow.cartesian = FALSE) %>% 
+        allow.cartesian = FALSE) %>%
   merge(.,
         rec_91[, .(subject_id,
                    hadm_id,
                    stay_id,
-                   rec_91_early_enteral_nutrition)] %>% 
+                   rec_91_early_enteral_nutrition)] %>%
           unique(),
         by = c("subject_id",
                "hadm_id",
                "stay_id"),
         all.x = TRUE,
         all.y = FALSE,
-        allow.cartesian = FALSE) %>% 
+        allow.cartesian = FALSE) %>%
   merge(.,
         rec_92[, .(subject_id,
                    hadm_id,
                    stay_id,
-                   rec_92_insulin_at_glucose_180)] %>% 
+                   rec_92_insulin_at_glucose_180)] %>%
           unique(),
         by = c("subject_id",
                "hadm_id",
                "stay_id"),
         all.x = TRUE,
         all.y = FALSE,
-        allow.cartesian = FALSE) %>% 
+        allow.cartesian = FALSE) %>%
   merge(.,
         rec_96[, .(subject_id,
                    hadm_id,
                    stay_id,
-                   rec_96_sodium_bicarb)] %>% 
+                   rec_96_sodium_bicarb)] %>%
           unique(),
         by = c("subject_id",
                "hadm_id",
