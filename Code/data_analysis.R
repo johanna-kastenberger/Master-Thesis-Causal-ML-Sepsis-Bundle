@@ -6,6 +6,29 @@ DT_ssc_encoded <- readRDS(here::here("Data/DT_ssc_encoded.rds")) %>%
   
 
 ## Recommendation 7
+rec_7 %>% 
+  copy() %>% 
+  ggplot(
+    aes(x = blood_culture_collected)
+  ) +
+  geom_bar(aes(fill = blood_culture_collected))
+
+rec_7 %>% 
+  copy() %>% 
+  ggplot(aes(x = blood_culture_before_anti)) +
+  geom_bar(aes(fill = blood_culture_before_anti))
+
+rec_7 %>% 
+  copy() %>% 
+  ggplot(aes(x = blood_culture_within_3h)) +
+  geom_bar(aes(fill = blood_culture_within_3h))
+
+rec_7 %>% 
+  copy() %>% 
+  ggplot(aes(x = blood_before_anti_within_3h)) +
+  geom_bar(aes(fill = blood_before_anti_within_3h))
+
+
 rec7_label <- ssc_recommendations %>% 
   copy() %>% 
   .[rec_num == 7, rec_label]

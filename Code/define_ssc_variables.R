@@ -28,21 +28,21 @@ sepsis_base_cohort_data <- sepsis_base_cohort_data %>%
       lubridate::time_length(
           suspected_infection_time -
             icu_intime,
-        "hours")]
-  ## sepsis diagnosis within +/-24h to ICU admission
-  .[suspected_infection_time >= icu_intime - hours(24) &
-      suspected_infection_time <= icu_intime + hours(24)] %>% 
-  ## Keep only first hospitalization & ICU stay per patient
+        "hours")] %>% 
+  ## Keep only first ICU stay per patient
   .[order(subject_id,
           hadm_id,
           stay_id,
           icu_intime),
     .SD[1],
     by = .(subject_id)] %>% 
+  ## sepsis diagnosis within +/-24h to ICU admission
+  .[suspected_infection_time >= icu_intime - hours(24) &
+      suspected_infection_time <= icu_intime + hours(24)] %>% 
   ## ICU length of stay >= 24h
   .[time_length(icu_outtime -
-                    icu_intime,
-                  unit = "hours") >= 24] %>% 
+                  icu_intime,
+                unit = "hours") >= 24] %>% 
   ## Initial IV fluid resuscitation (crystalloids, colloids, other IV fluids)
   ## should start immediately after sepsis onset, but to account for delayed
   ## documentation, up to 1 hour before recorded sepsis onset is considered.
@@ -660,38 +660,157 @@ rec7_label <- ssc_recommendations %>%
 ## antimicrobial agents was not incorporated into the Sepsis-3 derived table, this 
 ## represents a proxy for culture collection before antimicrobial therapy.
 
+## Blood cultures were identified from the `microbiologyevents` table using the 
+## specimen types "BLOOD CULTURE" and "BLOOD CULTURE ( MYCO/F LYTIC BOTTLE)". 
+## Specimen types such as "Stem Cell - Blood Culture", "FLUID RECEIVED IN BLOOD 
+## CULTURE BOTTLES", neonatal blood cultures, serological blood specimens, and 
+## other specialized blood-derived specimens were excluded because they do not 
+## represent routine diagnostic blood cultures obtained from adult patients with 
+## suspected sepsis. Restricting the definition to routine patient blood cultures 
+## ensured consistency with the intent of SSC Recommendation 7, which recommends 
+## obtaining blood cultures before initiation of antimicrobial therapy to maximize 
+## microbiological diagnostic yield.
+
+## Although the study cohort was restricted to ICU admissions, blood cultures were 
+## identified from the entire hospitalization rather than only during the ICU stay. 
+## This approach was chosen because the SSC recommendation refers to the initial 
+## management of the sepsis episode rather than care delivered exclusively after 
+## ICU admission. In clinical practice, blood cultures are frequently obtained in 
+## the emergency department or on hospital wards before transfer to the ICU, often 
+## immediately before initiation of antimicrobial therapy. Restricting blood cultures 
+## to the ICU stay would therefore underestimate adherence by excluding clinically 
+## appropriate cultures obtained before ICU admission.
+
+blood_culture_events <- all_microbioevents %>% 
+  copy() %>% 
+  ## only patients in sepsis base cohort
+  .[hadm_id %in% sepsis_base_cohort_data$hadm_id] %>% 
+  ## relevant blood cultures
+  .[spec_type_desc %in% c("BLOOD CULTURE",
+                          "BLOOD CULTURE ( MYCO/F LYTIC BOTTLE)")] %>% 
+  .[, .(subject_id,
+        hadm_id,
+        # stay_id,
+        blood_culture_time = charttime,
+        spec_type_desc
+        # icu_intime,
+        # icu_outtime
+        )] %>% 
+  unique() %>% 
+  merge(.,
+        sepsis_base_cohort_data[, .(subject_id,
+                                    hadm_id,
+                                    stay_id,
+                                    suspected_infection_time)],
+        by = c("subject_id",
+               "hadm_id"),
+        all = FALSE) %>% 
+  ## Time between blood culture and sepsis onset
+  .[, time_to_sepsis := 
+      lubridate::time_length(
+        blood_culture_time -
+        suspected_infection_time,
+        "hours")] %>% 
+  .[, closest_sepsis_time := 
+      pmin(
+        time_to_sepsis,
+        na.rm = TRUE),
+    by = .(subject_id,
+           hadm_id,
+           stay_id)] %>% 
+  .[order(subject_id,
+          hadm_id,
+          stay_id,
+          time_to_sepsis),
+    .SD[1],
+    by = .(subject_id,
+           hadm_id,
+           stay_id)]
+
+## Check time difference between sepsis onset and blood culture collection
+summary(blood_culture_events$closest_sepsis_time)
+
+## Analzye distribution of time difference between sepsis onset and blood culture collection
+quantile(blood_culture_events$closest_sepsis_time,
+         probs = c(0.01,
+                   0.05,
+                   0.1, 
+                   0.5, 
+                   0.75,
+                   0.9, 
+                   0.95, 
+                   0.99),
+         na.rm = TRUE)
+
+## Blood culture collection must pertain to the current sepsis episode
+## Restrict cultures to 24h within sepsis onset
+sepsis_blood_cultures <- blood_culture_events %>% 
+  copy() %>% 
+  .[abs(time_to_sepsis) <= 24]
+
+
 rec_7 <- sepsis_base_cohort_data %>% 
   copy() %>% 
   .[, .(subject_id,
         hadm_id,
         stay_id,
         suspected_infection_time,
-        culture_time,
         antibiotic_time)] %>% 
-  # .[, `:=` (blood_culture_collected = !is.na(culture_time),
-  #           
-  #           blood_culture_before_antibiotics = !is.na(culture_time) &
-  #             !is.na(antibiotic_time) &
-  #             culture_time <= antibiotic_time,
-  #           
-  #           blood_culture_within_3h = !is.na(culture_time) &
-  #             !is.na(suspected_infection_time) &
-  #             culture_time >= suspected_infection_time &
-  #             culture_time <= suspected_infection_time + hours(3))] %>% 
-  .[, rec_7_culture_before_antimicrobial := !is.na(culture_time) &
-      !is.na(antibiotic_time) &
-      !is.na(suspected_infection_time) &
-      !is.na(suspected_infection_time) &
-      culture_time >= suspected_infection_time &
-      culture_time <= suspected_infection_time + hours(3) &
-      culture_time <= antibiotic_time] %>% 
-  .[, rec_7_eligibility := fcase(
-    !is.na(rec_7_culture_before_antimicrobial),
-    "eligible",
+  merge(.,
+        sepsis_blood_cultures,
+        by = c("subject_id",
+               "stay_id",
+               "hadm_id",
+               "suspected_infection_time"),
+        all.x = TRUE,
+        all.y = FALSE) %>% 
+  .[, blood_culture_collected := fcase(
     
-    default = NA_character_)]
+    !is.na(blood_culture_time),
+    TRUE,
+    
+    is.na(blood_culture_time),
+    FALSE,
+    
+    default = NA)] %>% 
+  .[, blood_culture_before_anti := fcase(
+    
+    blood_culture_collected == TRUE &
+      blood_culture_time <= antibiotic_time,
+    TRUE,
+    
+    blood_culture_collected == TRUE &
+      blood_culture_time > antibiotic_time,
+    FALSE,
+    
+    default = NA)] %>% 
+  .[, blood_culture_within_3h := fcase(
+    
+    blood_culture_collected == TRUE &
+      time_to_sepsis <= 3,
+    TRUE,
+    
+    blood_culture_collected == TRUE &
+      time_to_sepsis > 3,
+    FALSE,
+    
+    default = NA)] %>% 
+  .[, blood_before_anti_within_3h := fcase(
+    
+    blood_culture_collected == TRUE &
+      blood_culture_before_anti == TRUE &
+      blood_culture_within_3h == TRUE,
+    TRUE,
+    
+    blood_culture_collected == TRUE &
+      (blood_culture_before_anti != TRUE |
+         blood_culture_within_3h != TRUE),
+    FALSE,
+    
+    default = NA)]
 
-## 8 RECOMMENDNA_character_## 8 RECOMMENDATION ------------------------------------------------------------
+
+## 8 RECOMMENDATION ------------------------------------------------------------
 rec8_label <- ssc_recommendations %>% 
   copy() %>% 
   .[rec_num == 8, rec_label]
@@ -705,12 +824,13 @@ lactate_itemid <- lab_itemids %>%
             ignore.case = TRUE)]
 
 ## Lactate Events
-lactate_events <- all_labevents_icu %>%
+## Consider lactate measurements during the entire hospitalization, not just
+## during the ICU stay to avoid excluding relevant measurements
+lactate_events <- all_labevents %>%
   copy() %>% 
   .[itemid %in% lactate_itemid$itemid,
     .(subject_id,
       hadm_id,
-      stay_id,
       charttime,
       valuenum)]
 
@@ -727,10 +847,9 @@ rec_8 <- sepsis_base_cohort_data %>%
   merge(.,
         lactate_events,
         by = c("subject_id",
-               "hadm_id",
-               "stay_id"),
+               "hadm_id"),
         all.x = TRUE,
-        all.y = FALSE) %>% 
+        all.y = FALSE)
   .[, lactate_measured := !is.na(valuenum) &
       ## restrict measurement to initial resuscitation window
                             charttime >= fluid_resuscitation_start &
