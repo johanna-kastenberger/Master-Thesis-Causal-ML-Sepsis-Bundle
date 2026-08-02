@@ -3,163 +3,265 @@ source(here::here("Code/global.R"))
 
 DT_ssc_encoded <- readRDS(here::here("Data/DT_ssc_encoded.rds")) %>% 
   setDT()
+
+## Functions to create adherance & eligbility barplots ---------------------------------------
+create_barplot_adherance <- function(.data,
+                           .rec,
+                           .title) {
   
+  .data %>% 
+    copy() %>% 
+    .[, plot_var := get(.rec)] %>% 
+    .[, plot_var := factor(plot_var,
+                      levels = c(TRUE,
+                                 FALSE,
+                                 as.logical(NA)))] %>%
+    .[order(plot_var)] %>%
+    ggplot(aes(x = plot_var,
+               fill = plot_var,
+               color = plot_var)) +
+    geom_bar() +
+    geom_text(
+      color = "black",
+      group = 1,
+      stat = "count",
+      aes(label = scales::percent(after_stat(count / sum(count)),
+                                  accuracy = 0.1)),
+      vjust = -0.3
+    ) +
+    theme_minimal() +
+    scale_fill_manual(
+      name = "",
+      values = c("TRUE" = pastel.blue,
+                 "FALSE" = pastel.orange),
+      na.value = "lightgrey") +
+    scale_color_manual(
+      values = c("TRUE" = blue,
+                 "FALSE" = orange),
+      na.value = "grey",
+      guide = "none"
+    ) +
+    labs(x = "",
+         y = "N",
+         title = .title,
+         caption = paste("Number of stays: ", .data[, uniqueN(stay_id)])) +
+    theme_minimal()
+}
 
-## Recommendation 7
-rec_7 %>% 
-  copy() %>% 
-  ggplot(
-    aes(x = blood_culture_collected)
-  ) +
-  geom_bar(aes(fill = blood_culture_collected))
+create_barplot_eligibility <- function(.data,
+                                     .rec,
+                                     .title,
+                                     .fill_values,
+                                     .color_values) {
+  
+  .data %>% 
+    copy() %>% 
+    .[, plot_var := get(.rec)] %>% 
+    ggplot(aes(x = plot_var,
+               fill = plot_var,
+               color = plot_var)) +
+    geom_bar() +
+    geom_text(
+      color = "black",
+      group = 1,
+      stat = "count",
+      aes(label = scales::percent(after_stat(count / sum(count)),
+                                  accuracy = 0.1)),
+      vjust = -0.3
+    ) +
+    theme_minimal() +
+    scale_fill_manual(
+      name = "",
+      values = .fill_values) +
+    scale_color_manual(
+      values = .color_values,
+      guide = "none"
+    ) +
+    labs(x = "",
+         y = "N",
+         title = .title,
+         caption = paste("Number of stays: ", .data[, uniqueN(stay_id)])) +
+    theme_minimal()
+}
 
-rec_7 %>% 
-  copy() %>% 
-  ggplot(aes(x = blood_culture_before_anti)) +
-  geom_bar(aes(fill = blood_culture_before_anti))
 
-rec_7 %>% 
-  copy() %>% 
-  ggplot(aes(x = blood_culture_within_3h)) +
-  geom_bar(aes(fill = blood_culture_within_3h))
-
-rec_7 %>% 
-  copy() %>% 
-  ggplot(aes(x = blood_before_anti_within_3h)) +
-  geom_bar(aes(fill = blood_before_anti_within_3h))
-
-
+## Adherance barplots ----------------------------------------------------------
+### 7 Recommendation -----------------------------------------------------------
 rec7_label <- ssc_recommendations %>% 
   copy() %>% 
   .[rec_num == 7, rec_label]
 
-DT_ssc_encoded %>% 
-  copy() %>% 
-  ggplot(aes(x = rec_7_culture_before_antimicrobial,
-             fill = rec_7_culture_before_antimicrobial)) +
-  geom_bar() +
-  theme_minimal()
+create_barplot_adherance(.data = rec_7,
+               .rec = "blood_culture_collected",
+               .title = "Recommendation 7 - Blood culture collected")
 
-## Recommendation 8
+create_barplot_adherance(.data = DT_ssc_encoded,
+               .rec = "rec_7_culture_before_antimicrobial",
+               .title = "Recommendation 7 - Blood culture collected before antimicrobial therapy")
+
+
+### 8 Recommendation 8 ---------------------------------------------------------
 rec8_label <- ssc_recommendations %>% 
   copy() %>% 
   .[rec_num == 8, rec_label]
 
-DT_ssc_encoded %>% 
-  copy() %>% 
-  ggplot(aes(x = rec_8_lactate_measured_at_suspicion,
-             fill = rec_8_lactate_measured_at_suspicion)) +
-  geom_bar() +
-  theme_minimal()
+create_barplot_adherance(.data = DT_ssc_encoded,
+               .rec = "rec_8_lactate_measured",
+               .title = "Recommendation 8 - Lactate measured")
 
-## Recommendation 10
+create_barplot_adherance(.data = DT_ssc_encoded,
+               .rec = "rec_8_lactate_measured_within_1h",
+               .title = "Recommendation 8 - Lactate measured within 1h of sepsis onset")
+
+create_barplot_adherance(.data = DT_ssc_encoded,
+                         .rec = "rec_8_lactate_measured_within_3h",
+                         .title = "Recommendation 8 - Lactate measured within 3h of sepsis onset")
+
+create_barplot_adherance(.data = DT_ssc_encoded,
+                         .rec = "rec_8_lactate_measured_within_6h",
+                         .title = "Recommendation 8 - Lactate measured within 6h of sepsis onset")
+
+rec_8 %>% 
+  copy() %>% 
+  ggplot(aes(x = time_to_sepsis)) +
+  geom_histogram(color = "mediumblue",
+                 fill = "lightblue") +
+  scale_x_continuous(limits = c(-1, 6),
+                     breaks = seq(-1, 6, 2)) +
+  theme_minimal() +
+  labs(x = "Time from sepsis onset to lactate measurement",
+       y = "N")
+
+### 10 Recommendation ----------------------------------------------------------
 ## septic shock OR sepsis-induced hypoperfusion
+## currently only septic shock --> revisit
 rec10_label <- ssc_recommendations %>% 
   copy() %>% 
   .[rec_num == 10, rec_label]
 
-DT_ssc_encoded %>% 
-  copy() %>% 
-  ggplot(aes(x = rec_10_crystalloid_within_3h,
-             fill = rec_10_crystalloid_within_3h)) +
-  geom_bar() +
-  theme_minimal()
+create_barplot_eligibility(.data = DT_ssc_encoded,
+               .rec = "rec_10_eligibility",
+               .title = "Recommendation 10 elibility - 30mL/kg crystalloid within first 3h",
+               .fill_values = c("eligible" = pastel.blue,
+                                "missing weight" = pastel.orange,
+                                "no sepsis-induced hypoperfusion or unknown" = "lightgrey"),
+               .color_values = c("eligible" = blue,
+                                 "missing weight" = orange,
+                                 "no sepsis-induced hypoperfusion or unknown" = "grey"))
 
-DT_ssc_encoded %>% 
-  copy() %>% 
-  ggplot(aes(x = rec_10_eligibility,
-             fill = rec_10_eligibility)) +
-  geom_bar() +
-  theme_minimal()
+create_barplot_adherance(.data = DT_ssc_encoded[hypoperfusion_proxy == TRUE],
+                         .rec = "rec_10_crystalloid_within_3h",
+                         .title = "Recommendation 10 - 30mL/kg crystalloid within first 3h")
 
-## Recommenation 12
+create_barplot_adherance(.data = DT_ssc_encoded[hypoperfusion_proxy == TRUE],
+                         .rec = "rec_10_crystalloid_within_3h_bolus",
+                         .title = "Recommendation 10 - 30mL/kg crystalloid within first 3h (bolus fluid only)")
+
+
+### 12 Recommenation -----------------------------------------------------------
 ## septic shock
 rec12_label <- ssc_recommendations %>% 
   copy() %>% 
   .[rec_num == 12, rec_label]
 
-DT_ssc_encoded %>% 
-  copy() %>% 
-  ggplot(aes(x = rec_12_vaso_before_cvc,
-             fill = rec_12_vaso_before_cvc)) +
-  geom_bar() +
-  theme_minimal()
+create_barplot_eligibility(.data = DT_ssc_encoded,
+                         .rec = "rec_12_eligibility",
+                         .title = "Recommendation 12 eligibility - Peripheral vasopressors before central venous access",
+                         .fill_values = c("eligible" = pastel.blue,
+                                          "no septic shock or unknown" = pastel.orange),
+                         .color_values = c("eligible" = blue,
+                                           "no septic shock or unknown" = orange))
 
-DT_ssc_encoded %>% 
-  copy() %>% 
-  ggplot(aes(x = rec_12_eligibility,
-             fill = rec_12_eligibility)) +
-  geom_bar() +
-  theme_minimal()
+create_barplot_adherance(.data = DT_ssc_encoded[septic_shock_proxy == TRUE],
+                         .rec = "rec_12_vaso_without_central_delay",
+                         .title = "Recommendation 12 - Peripheral vasopressors before central venous access")
 
-## Recommendation 13
+
+### 13 Recommendation ----------------------------------------------------------
 rec_13_label <- ssc_recommendations %>% 
   copy() %>% 
   .[rec_num == 13, rec_label]
 
-DT_ssc_encoded %>% 
-  copy() %>% 
-  ggplot(aes(x = rec_13_map_target_65,
-             fill = rec_13_map_target_65)) +
-  geom_bar() +
-  theme_minimal()
+create_barplot_eligibility(.data = DT_ssc_encoded,
+                           .rec = "rec_13_eligibility",
+                           .title = "Recommendation 13 eligibility - initial map target of 65mmHG",
+                           .fill_values = c("eligible" = pastel.blue,
+                                            "no septic shock or unknown" = pastel.orange),
+                           .color_values = c("eligible" = blue,
+                                             "no septic shock or unknown" = orange))
 
-DT_ssc_encoded %>% 
-  copy() %>% 
-  ggplot(aes(x = rec_13_eligibility,
-             fill = rec_13_eligibility)) +
-  geom_bar() +
-  theme_minimal()
+create_barplot_adherance(.data = DT_ssc_encoded[septic_shock_proxy == TRUE],
+                         .rec = "rec_13_map_target_65",
+                         .title = "Recommendation 13 - initial map target of 65mmHG")
 
-## Recommendation 15
+
+### 15 Recommendation ----------------------------------------------------------
 rec_15_label <- ssc_recommendations %>% 
   copy() %>% 
   .[rec_num == 15, rec_label]
 
-DT_ssc_encoded %>% 
-  copy() %>% 
-  ggplot(aes(x = rec_15_icu_6h,
-             fill = rec_15_icu_6h)) +
-  geom_bar() +
-  theme_minimal()
+create_barplot_adherance(.data = DT_ssc_encoded,
+                         .rec = "rec_15_icu_6h",
+                         .title = "Recommendation 15 - ICU admission within 6h")
 
-## Recommendation 16
+
+### 16 & 17 Recommendation ----------------------------------------------------------
 rec_16_label <- ssc_recommendations %>% 
   copy() %>% 
   .[rec_num == 16, rec_label]
 
-DT_ssc_encoded %>% 
-  copy() %>% 
-  ggplot(aes(x = rec_16_shock_antib_within_1h,
-             fill = rec_16_shock_antib_within_1h)) +
-  geom_bar() +
-  theme_minimal()
+create_barplot_adherance(.data = DT_ssc_encoded[septic_shock_proxy == TRUE],
+                         .rec = "rec_16_antimicrobial_within_3h",
+                         .title = "Recommendation 16 - antimicrobial therapy within 3h for septic shock patients")
 
-## Recommendation 17
-rec_17_label <- ssc_recommendations %>% 
-  copy() %>% 
-  .[rec_num == 17, rec_label]
+create_barplot_adherance(.data = DT_ssc_encoded[septic_shock_proxy == TRUE],
+                         .rec = "rec_16_antimicrobial_within_1h",
+                         .title = "Recommendation 16 - antimicrobial therapy within 1h for septic shock patients")
 
-DT_ssc_encoded %>% 
-  copy() %>% 
-  ggplot(aes(x = rec_17_sepsis_antib_within_1h,
-             fill = rec_17_sepsis_antib_within_1h)) +
-  geom_bar() +
-  theme_minimal()
+create_barplot_adherance(.data = DT_ssc_encoded[septic_shock_proxy == FALSE],
+                         .rec = "rec_17_antimicrobial_within_3h",
+                         .title = "Recommendation 17 - antimicrobial therapy within 3h for sepsis patients without shock")
 
-## Recommendation 43
+create_barplot_adherance(.data = DT_ssc_encoded[septic_shock_proxy == FALSE],
+                         .rec = "rec_17_antimicrobial_within_1h",
+                         .title = "Recommendation 17 - antimicrobial therapy within 1h for sepsis patients without shock")
+
+### 42 Recommendation ----------------------------------------------------------
+rec_42_label <- ssc_recommendations %>% 
+  copy() %>% 
+  .[rec_num == 42, rec_label]
+
+create_barplot_eligibility(.data = DT_ssc_encoded,
+                           .rec = "rec_42_eligibility",
+                           .title = "Recommendation 42 eligibility - Invasive or non-invasive blood pressure monitoring for septic shock patients",
+                           .fill_values = c("eligible" = pastel.blue,
+                                            "no septic shock or unknown" = pastel.orange),
+                           .color_values = c("eligible" = blue,
+                                             "no septic shock or unknown" = orange))
+
+create_barplot_adherance(.data = DT_ssc_encoded[septic_shock_proxy == TRUE],
+                         .rec = "rec_42_bp_monitoring",
+                         .title = "Recommendation 42 - Invasive or non-invasive blood pressure monitoring for septic shock patients")
+
+
+### 43 Recommendation ----------------------------------------------------------
 rec_43_label <- ssc_recommendations %>% 
   copy() %>% 
   .[rec_num == 43, rec_label]
 
-DT_ssc_encoded %>% 
-  copy() %>% 
-  ggplot(aes(x = rec_43_crystalloid_first_line,
-             fill = rec_43_crystalloid_first_line)) +
-  geom_bar() +
-  theme_minimal()
+create_barplot_eligibility(.data = DT_ssc_encoded,
+                           .rec = "rec_43_eligibility",
+                           .title = "Recommendation 43 eligibility - Crystalloids as first-line fluid for resuscitation",
+                           .fill_values = c("eligible" = pastel.blue,
+                                            "no initial fluid resuscitation within 3h" = pastel.orange),
+                           .color_values = c("eligible" = blue,
+                                             "no initial fluid resuscitation within 3h" = orange))
 
-## Recommendation 44
+create_barplot_adherance(.data = DT_ssc_encoded,
+                         .rec = "rec_43_crystalloid_first_line",
+                         .title = "Recommendation 43 - Crystalloids as first-line fluid for resuscitation")
+
+### 44 Recommendation ----------------------------------------------------------
 rec_44_label <- ssc_recommendations %>% 
   copy() %>% 
   .[rec_num == 44, rec_label]
@@ -413,4 +515,52 @@ rec69_label
 rec71_label
 
 
+## -----------------------------------------------------------------------------
+round(prop.table(table(DT_ssc_encoded$rec_7_culture_before_antimicrobial)) * 100, 2)
 
+round(prop.table(table(DT_ssc_encoded$rec_8_lactate_measured_at_suspicion)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_10_crystalloid_within_3h)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_12_vaso_before_cvc)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_13_map_target_65)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_15_icu_6h)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_16_17_antib_within_3h)) * 100, 2)
+round(prop.table(table(DT_ssc_encoded$rec_16_17_antib_within_1h)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_42_bp_monitoring)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_43_crystalloid_first_line)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_44_balanced_over_saline)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_45_crystalloid_no_albumin)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_53_first_vaso_norepi)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_55_first_vaso_norepi)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_56_vasopressin_after_escalating_norepi)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_57_epi_after_escalating_norepi_vaso)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_67_first_oxygen_hfnc)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_68_first_oxygen_hfnc_over_niv)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_69_hfnc_over_hfnc_niv_alternating)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_79_iv_corticosteroids)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_89_active_fluid_removal)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_90_restrictive_transfusion)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_91_early_enteral_nutrition)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_92_insulin_started_at_glucose_180)) * 100, 2)
+
+round(prop.table(table(DT_ssc_encoded$rec_96_sodium_bicarb)) * 100, 2)
