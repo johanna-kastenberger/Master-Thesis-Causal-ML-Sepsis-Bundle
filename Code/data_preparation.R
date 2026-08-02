@@ -8,6 +8,7 @@ hosp_db <- "`physionet-data.mimiciv_3_1_hosp`"
 icu_db  <- "`physionet-data.mimiciv_3_1_icu`"
 derived_db <- "`physionet-data.mimiciv_3_1_derived`"
 note_db <- "`physionet-data.mimiciv_note`"
+ed_db <- "`physionet-data.mimiciv_ed`"
 
 ## Helper function to execute and download queries
 run_query <- function(sql) {
@@ -17,13 +18,16 @@ run_query <- function(sql) {
 
 ## 2. BASE SEPSIS PATIENT COHORT -----------------------------------------------
 ## MIMIV-IV Patient table
+if (!file.exists(here::here("Data/patient_data.rds"))) {
 sql_patient <- glue::glue(
   "SELECT
   *
   FROM {hosp_db}.patients")
 
-# patient_data <- run_query(sql_patient)
-# saveRDS(patient_data, here::here("Data/patient_data.rds"))
+patient_data <- run_query(sql_patient)
+saveRDS(patient_data, here::here("Data/patient_data.rds"))
+}
+
 patient_data <- readRDS(here::here("Data/patient_data.rds")) %>% 
   setDT()
 
@@ -31,6 +35,7 @@ patient_data <- readRDS(here::here("Data/patient_data.rds")) %>%
 patient_data[, uniqueN(subject_id)]
 
 ## MIMIC-IV ICU table
+if (!file.exists(here::here("Data/icu_data.rds"))) {
 sql_icu <- glue::glue(
   "SELECT
   
@@ -42,8 +47,10 @@ sql_icu <- glue::glue(
   los as icu_los
   FROM {icu_db}.icustays")
 
-# icu_data <- run_query(sql_icu)
-# saveRDS(icu_data, here::here("Data/icu_data.rds"))
+icu_data <- run_query(sql_icu)
+saveRDS(icu_data, here::here("Data/icu_data.rds"))
+}
+
 icu_data <- readRDS(here::here("Data/icu_data.rds")) %>% 
   setDT()
 
@@ -57,13 +64,16 @@ icu_data[, uniqueN(hadm_id)]
 icu_data[, uniqueN(stay_id)]
 
 ## MIMIC-IV hospital admission table
+if (!file.exists(here::here("Data/hadm_data.rds"))) {
 sql_hadm <- glue::glue(
   "SELECT
   *
   FROM {hosp_db}.admissions")
 
-# hadm_data <- run_query(sql_hadm)
-# saveRDS(hadm_data, here::here("Data/hadm_data.rds"))
+hadm_data <- run_query(sql_hadm)
+saveRDS(hadm_data, here::here("Data/hadm_data.rds"))
+}
+
 hadm_data <- readRDS(here::here("Data/hadm_data.rds")) %>% 
   setDT() %>% 
   .[order(subject_id,
@@ -76,6 +86,7 @@ hadm_data[, uniqueN(subject_id)]
 hadm_data[, uniqueN(hadm_id)]
 
 ## MIMIC-IV Sepsis 3 table
+if (!file.exists(here::here("Data/sepsis3_data.rds"))) {
 sql_sepsis3 <- glue::glue(
   "SELECT
   s3.subject_id,
@@ -95,8 +106,10 @@ sql_sepsis3 <- glue::glue(
     
   FROM {derived_db}.sepsis3 as s3")
   
-# sepsis3_data <- run_query(sql_sepsis3)
-# saveRDS(sepsis3_data, here::here("Data/sepsis3_data.rds"))
+sepsis3_data <- run_query(sql_sepsis3)
+saveRDS(sepsis3_data, here::here("Data/sepsis3_data.rds"))
+}
+
 sepsis3_data <- readRDS(here::here("Data/sepsis3_data.rds")) %>% 
   setDT()
 
@@ -152,73 +165,6 @@ base_cohort <- merge(
 
 stopifnot(base_cohort[, uniqueN(stay_id)] == length(stays_sepsis3))
 
-## Define the SQL to get the base cohort (adults, from sepsis3 definition)
-## The sepsis3 table includes adult patients (age >= 18) in the ICU with sepsis3 
-## criteria == TRUE. It provides a standardized definition of sepsis 
-## and sepsis onset time.
-# sql_base_cohort <- glue::glue(
-# "SELECT
-#     s3.subject_id,
-#     icu.hadm_id,
-#     s3.stay_id,
-# 
-#     s3.sepsis3,
-#     s3.antibiotic_time,
-#     s3.culture_time,
-#     s3.suspected_infection_time,
-#     s3.sofa_time,
-#     s3.sofa_score,
-# 
-#     s3.respiration,
-#     s3.coagulation,
-#     s3.liver,
-#     s3.cardiovascular,
-#     s3.cns,
-#     s3.renal,
-# 
-#     icu.intime AS icu_intime,
-#     icu.outtime AS icu_outtime,
-#     icu.los AS icu_los,
-# 
-#     adm.admittime,
-#     adm.dischtime,
-#     adm.deathtime,
-# 
-#     pat.anchor_age,
-#     pat.gender,
-# 
-#     CASE
-#       WHEN pat.dod IS NOT NULL
-#        AND pat.dod BETWEEN adm.admittime AND adm.dischtime
-#       THEN 1 ELSE 0
-#     END AS hospital_mortality,
-# 
-#     CASE
-#       WHEN pat.dod IS NOT NULL
-#        AND pat.dod <= adm.admittime + INTERVAL 30 DAY
-#       THEN 1 ELSE 0
-#     END AS thirty_day_mortality
-# 
-#   FROM `physionet-data.mimiciv_3_1_derived.sepsis3` AS s3
-# 
-#   LEFT JOIN {icu_db}.icustays AS icu
-#     ON s3.stay_id = icu.stay_id
-# 
-#   LEFT JOIN {hosp_db}.admissions AS adm
-#     ON icu.hadm_id = adm.hadm_id
-# 
-#   LEFT JOIN {hosp_db}.patients AS pat
-#     ON s3.subject_id = pat.subject_id
-#   
-#   WHERE s3.sepsis3 IS TRUE")
-# 
-# ## Create the main analysis dataframe
-# ## SQL commands only need to run once to create and save RDS file
-# # base_cohort_variables <- run_query(sql_base_cohort)
-# # saveRDS(base_cohort_variables, here::here("Data/base_cohort_variables.rds"))
-# base_cohort_variables <- readRDS(here::here("Data/base_cohort_variables.rds")) %>% 
-#   setDT()
-
 ## Unique set of Subject IDs for adults with sepsis
 subject_ids_sql_list <- paste(unique(base_cohort$subject_id), collapse = ",")
 
@@ -241,6 +187,7 @@ stay_lookup <- base_cohort %>%
 stopifnot(nrow(stay_lookup) == length(stays_sepsis3))
 
 ## Variable look up table
+if (!file.exists(here::here("Data/d_items.rds"))) {
 sql_d_items <- glue::glue(
   "SELECT
       itemid,
@@ -254,8 +201,10 @@ sql_d_items <- glue::glue(
       linksto
   FROM {icu_db}.d_items")
 
-# d_items <- run_query(sql_d_items)
-# saveRDS(d_items, here::here("Data/d_items.rds"))
+d_items <- run_query(sql_d_items)
+saveRDS(d_items, here::here("Data/d_items.rds"))
+}
+
 d_items <- readRDS(here::here("Data/d_items.rds")) %>% 
   setDT()
 
@@ -265,94 +214,142 @@ d_items_categories <- d_items %>%
   copy() %>% 
   .[, unique(category)]
 
-## 3. INPUT EVENTS ----------------------------------------------------
-## This contains ICU-administered inputs: fluids, vasopressors, medications, infusion 
-## rates, volumes. It is needed for variables like IV fluid administration, vasopressor 
-## use, medication dose/rate, etc.
-sql_inputevents <- glue::glue(
-"SELECT stay_id, starttime, endtime, itemid, amount, amountuom, rate, rateuom
-  FROM {icu_db}.inputevents
-  WHERE stay_id IN ({stay_ids_sql_list})")
+## 3. HOSPITAL-WIDE DATA -------------------------------------------------------
 
-# all_inputevents <- run_query(sql_inputevents)
-# saveRDS(all_inputevents, here::here("Data/all_inputevents.rds"))
-all_inputevents <- readRDS(here::here("Data/all_inputevents.rds")) %>% 
-  setDT()
+### MICROBIOLOGY EVENTS --------------------------------------------------------
+## This contains cultures, organisms, antibiotic sensitivity results, specimen
+## type, and interpretation. It is hospital-level rather than ICU-only.
 
-## Check number of stay IDs
-all_inputevents[, uniqueN(stay_id)]
+## The query filters on subject_id rather than hadm_id. Filtering on
+## `hadm_id IN (...)` silently drops every specimen with a missing hadm_id,
+## because NULL never satisfies an IN predicate in BigQuery. In MIMIC-IV this
+## affects emergency department specimens, collected before the hospital
+## admission record is created. Diagnostics showed 95% of such blood cultures
+## were drawn in the ~4h BEFORE admittime, whereas captured cultures had a median
+## of +14.6h after admittime -- i.e. the initial diagnostic draw was
+## systematically excluded while later repeat cultures were retained. Restricting
+## to hadm_id understated adherence to SSC Recommendation 7 (blood cultures
+## before antimicrobials) from 54.5% to 23.3%. The hadm_id is repaired below via
+## an encounter-level time window.
 
-
-## 4. MICROBIOLOGY EVENTS ---------------------------------------------
-## This contains cultures, organisms, antibiotic sensitivity results, specimen type, 
-## and interpretation. It is hospital-level rather than ICU-only, so the code later 
-## maps it back to ICU stays using subject_id + hadm_id + charttime.
-sql_microbio <- glue::glue(
-"SELECT
+if (!file.exists(here::here("Data/all_microbioevents.rds"))) {
+  
+  sql_microbio <- glue::glue(
+    "SELECT
     subject_id,
     hadm_id,
+    micro_specimen_id,
     charttime,
     spec_type_desc,
     org_name,
     ab_name,
     interpretation
   FROM {hosp_db}.microbiologyevents
-  WHERE hadm_id IN ({hadm_ids_sql_list})")
+  WHERE subject_id IN ({subject_ids_sql_list})")
+  
+  all_microbioevents_raw <- run_query(sql_microbio)
+  saveRDS(all_microbioevents_raw, here::here("Data/all_microbioevents_raw.rds"))
+  all_microbioevents_raw <- readRDS(here::here("Data/all_microbioevents_raw.rds")) %>% 
+    setDT()
+  
+  ## Encounter-level linkage window: a specimen belongs to a hospitalisation if it
+  ## was collected from 24 hours before admission (emergency
+  ## department workup) through to discharge. The same window is reused to repair
+  ## missing hadm_id in the labevents section below.
+  admission_window_microbio <- base_cohort %>%
+    copy() %>%
+    .[, .(subject_id,
+          hadm_id,
+          window_start = admittime - lubridate::hours(24),
+          window_end   = dischtime)] %>%
+    unique()
+  
+  ## Specimens that already carry a cohort hadm_id keep it unchanged.
+  microbio_already_linked <- all_microbioevents_raw %>% 
+    copy() %>% 
+    .[!is.na(hadm_id)] %>% 
+    .[hadm_id %in% base_cohort$hadm_id]
+  
+  ## Specimens with a missing hadm_id are matched to an admission by time.
+  microbio_repaired <- all_microbioevents_raw %>% 
+    copy() %>% 
+    .[is.na(hadm_id)] %>% 
+    .[, hadm_id := NULL] %>% 
+    merge(.,
+          admission_window_microbio,
+          by = "subject_id",
+          all.x = FALSE,
+          all.y = FALSE,
+          allow.cartesian = TRUE) %>% 
+    .[charttime >= window_start &
+        charttime <= window_end] %>% 
+    .[, `:=` (window_start = NULL,
+              window_end   = NULL)]
+  
+  ## Check that each specimen is matched to exactly one hospital admission
+  stopifnot(microbio_repaired[, .(n_hadm = uniqueN(hadm_id)), by = micro_specimen_id] %>% 
+              .[n_hadm > 1, .N] == 0)
+  
+  ## Final table -- same columns and meaning as before the fix.
+  all_microbioevents <- rbind(microbio_already_linked,
+                              microbio_repaired,
+                              use.names = TRUE,
+                              fill = FALSE)
+  
+  saveRDS(all_microbioevents, here::here("Data/all_microbioevents.rds"))
+  
+  ## Check that there are no remaining unmatched hospital admission IDs
+  stopifnot(all_microbioevents[, sum(is.na(hadm_id))] == 0)
+  
+  ## Check that only hadm_ids from the base cohort are included
+  stopifnot(all_microbioevents[, all(hadm_id %in% base_cohort$hadm_id)])
+  
+  ## Check that rows have only been added, not removed by the repair process
+  stopifnot(nrow(all_microbioevents) >= nrow(microbio_already_linked))
+  
+  ## Check number of subject IDs
+  all_microbioevents[, uniqueN(subject_id)]
+  
+  ## Check number of hadm IDs
+  all_microbioevents[, uniqueN(hadm_id)]
+  
+}
 
-# all_microbioevents <- run_query(sql_microbio)
-# saveRDS(all_microbioevents, here::here("Data/all_microbioevents.rds"))
+# saveRDS(all_microbioevents, here::here("Data/all_microbioevents_repaired.rds"))
 all_microbioevents <- readRDS(here::here("Data/all_microbioevents.rds")) %>% 
   setDT()
 
-## Check number of subject IDs
-all_microbioevents[, uniqueN(subject_id)]
 
-## Check number of hadm IDs
-all_microbioevents[, uniqueN(hadm_id)]
-
-
-all_microbioevents_icu <- all_microbioevents %>% 
-  copy() %>% 
-  merge(.,
-        stay_lookup,
-        by = c("subject_id",
-               "hadm_id"),
-        all.x = TRUE,
-        all.y = FALSE,
-        allow.cartesian = TRUE) %>% 
-  .[charttime >= icu_intime &
-      charttime <= icu_outtime]
-
-## Check number of subject IDs
-all_microbioevents_icu[, uniqueN(subject_id)]
-
-## Check number of hadm IDs
-all_microbioevents_icu[, uniqueN(hadm_id)]
-
-## 5. LAB EVENTS ------------------------------------------------------
+### LAB EVENTS -----------------------------------------------------------------
 ## Pull lab event look-up table to select relevant item IDs
-sql_lab_itemids <- glue::glue(
-  "SELECT
+
+if (!file.exists(here::here("Data/lab_itemids.rds"))) {
+  
+  sql_lab_itemids <- glue::glue(
+    "SELECT
       itemid,
       label,
       fluid,
       category
   FROM {hosp_db}.d_labitems"
-)
+  )
+  
+  lab_itemids <- run_query(sql_lab_itemids)
+  saveRDS(lab_itemids, here::here("Data/lab_itemids.rds"))
+  
+}
 
-# lab_itemids <- run_query(sql_lab_itemids)
-# saveRDS(lab_itemids, here::here("Data/lab_itemids.rds"))
 labitem_patterns <- c(
-              "lactate",
-              "wbc",
-              "creatinine",
-              "hemoglobin",
-              "platelets",
-              "inr",
-              "traponin",
-              "vancomycin",
-              "\\bph\\b"
-              )
+  "lactate",
+  "wbc",
+  "creatinine",
+  "hemoglobin",
+  "platelets",
+  "inr",
+  "troponin",
+  "vancomycin",
+  "\\bph\\b"
+)
 
 ## The code keeps labs such as lactate, WBC, creatinine, hemoglobin, platelets, INR, 
 ## troponin, vancomycin level, and pH. These are relevant for sepsis severity, monitoring, 
@@ -368,9 +365,12 @@ lab_itemids <- readRDS(here::here("Data/lab_itemids.rds")) %>%
 ## String of target lab item IDs
 sql_lab_itemids <- paste(unique(lab_itemids$itemid), collapse = ", ")
 
-## Pull relevant labevents
-sql_labevents <- glue::glue(
-"SELECT
+
+if (!file.exists(here::here("Data/all_labevents.rds"))) {
+  
+  sql_labevents <- glue::glue(
+    "SELECT
+    labevent_id,
     subject_id,
     hadm_id,
     charttime,
@@ -378,13 +378,71 @@ sql_labevents <- glue::glue(
     valuenum,
     valueuom
   FROM {hosp_db}.labevents
-  WHERE hadm_id IN ({hadm_ids_sql_list})
+  WHERE subject_id IN ({subject_ids_sql_list})
     AND itemid IN ({sql_lab_itemids})")
+  
+  all_labevents_raw <- run_query(sql_labevents)
+  saveRDS(all_labevents_raw, here::here("Data/all_labevents_raw.rds"))
+  all_labevents_raw <- readRDS(here::here("Data/all_labevents_raw.rds")) %>% 
+    setDT()
+  
+  admission_window_lab <- base_cohort %>%
+    copy() %>%
+    .[, .(subject_id,
+          hadm_id,
+          window_start = admittime - lubridate::hours(24),
+          window_end   = dischtime)] %>%
+    unique()
+  
+  ## Lab rows that already carry a cohort hadm_id keep it unchanged.
+  labevents_already_linked <- all_labevents_raw %>% 
+    copy() %>% 
+    .[!is.na(hadm_id)] %>% 
+    .[hadm_id %in% base_cohort$hadm_id]
+  
+  ## Rows with a missing hadm_id are matched to an admission by time.
+  labevents_repaired <- all_labevents_raw %>%
+    copy() %>%
+    .[is.na(hadm_id)] %>%
+    .[, hadm_id := NULL] %>%
+    merge(.,
+          admission_window_lab,
+          by = "subject_id",
+          all.x = FALSE,
+          all.y = FALSE,
+          allow.cartesian = TRUE) %>%
+    .[charttime >= window_start &
+        charttime <= window_end] %>%
+    ## resolve rows matching more than one admission window (readmission within
+    ## 24h): prefer the admission the draw falls INSIDE, else the admission it
+    ## most immediately precedes.
+    .[, admittime := window_start + lubridate::hours(24)] %>%
+    .[, is_within_admission := charttime >= admittime] %>%
+    .[, gap_to_admit := lubridate::time_length(admittime - charttime, "hours")] %>%
+    .[order(labevent_id, -is_within_admission, gap_to_admit)] %>%
+    .[, .SD[1], by = labevent_id] %>%
+    .[, `:=` (window_start = NULL,
+              window_end   = NULL,
+              admittime    = NULL,
+              is_within_admission = NULL,
+              gap_to_admit = NULL)]
+  
+  ## Check that each lab result maps to exactly one hospitalisation
+  stopifnot(
+    labevents_repaired[, .(n_hadm = uniqueN(hadm_id)),
+                       by = labevent_id][n_hadm > 1, .N] == 0)
+  
+  ## Combine results
+  all_labevents <- rbind(labevents_already_linked,
+                         labevents_repaired,
+                         use.names = TRUE,
+                         fill = FALSE)
+  
+  saveRDS(all_labevents, here::here("Data/all_labevents.rds"))
+  
+}
 
-# all_labevents <- run_query(sql_labevents)
-# saveRDS(all_labevents, here::here("Data/all_labevents.rds"))
-all_labevents <- readRDS(here::here("Data/all_labevents.rds")) %>% 
-  setDT()
+all_labevents <- readRDS(here::here("Data/all_labevents.rds")) %>% setDT()
 
 ## Check number of subject IDs
 all_labevents[, uniqueN(subject_id)]
@@ -392,6 +450,7 @@ all_labevents[, uniqueN(subject_id)]
 ## Check number of hadm IDs
 all_labevents[, uniqueN(hadm_id)]
 
+## Restrict to ICU window
 all_labevents_icu <- all_labevents %>% 
   copy() %>% 
   merge(.,
@@ -411,8 +470,316 @@ all_labevents_icu[, uniqueN(subject_id)]
 all_labevents_icu[, uniqueN(hadm_id)]
 
 
-## 6. CHART EVENTS ---------------------------------------------------- 
+
+### PRESCRIPTIONS --------------------------------------------------------------
+# Pull prescriptions
+if (!file.exists(here::here("Data/all_prescriptions.rds"))) {
+  sql_prescriptions <- glue::glue(
+    "SELECT 
+subject_id, 
+hadm_id, 
+starttime, 
+stoptime,
+drug_type,
+drug, 
+formulary_drug_cd,
+route, 
+dose_val_rx, 
+dose_unit_rx
+  FROM {hosp_db}.prescriptions
+  WHERE hadm_id IN ({hadm_ids_sql_list}) AND drug IS NOT NULL")
+  
+  all_prescriptions <- run_query(sql_prescriptions)
+  saveRDS(all_prescriptions, here::here("Data/all_prescriptions.rds"))
+}
+
+all_prescriptions <- readRDS(here::here("Data/all_prescriptions.rds")) %>% 
+  setDT()
+
+## Check number of subject IDs
+all_prescriptions[, uniqueN(subject_id)]
+
+## Check number of hadm IDs
+all_prescriptions[, uniqueN(hadm_id)]
+
+all_prescriptions_icu <- all_prescriptions %>% 
+  copy() %>% 
+  merge(.,
+        stay_lookup,
+        by = c("subject_id",
+               "hadm_id"),
+        all.x = TRUE,
+        all.y = FALSE,
+        allow.cartesian = TRUE) %>% 
+  .[starttime >= icu_intime &
+      starttime <= icu_outtime]
+
+## Check number of subject IDs
+all_prescriptions_icu[, uniqueN(subject_id)]
+
+## Check number of hadm IDs
+all_prescriptions_icu[, uniqueN(hadm_id)]
+
+
+#### ANTIMICROBIALS ------------------------------------------------------------
+if (!file.exists(here::here("Data/all_antimicrobialevents.rds"))) {
+  ## Systemic administration routes (whitelist). Anything else -- eyes/ears,
+  ## topical, inhaled/nebulized, catheter lock, dwell/dialysis, intraperitoneal,
+  ## irrigation, intravitreal -- is not systemic antimicrobial therapy.
+  systemic_routes <- c("IV",
+                       "IV DRIP",
+                       "IV BOLUS",
+                       "PB",
+                       "IVPCA",
+                       "PO",
+                       "PO/NG",
+                       "ORAL",
+                       "NG",
+                       "G TUBE",
+                       "J TUBE",
+                       "IM",
+                       "IJ",
+                       "SL",
+                       "SC",
+                       "SUBCUT",
+                       "IP")
+  
+  antimicrobial_include <- paste(
+    "vancomycin","cefepime","metronidazol","piperacillin","tazobactam","meropenem",
+    "ceftriaxone","ceftazidime","cefazolin","cefotaxime","cefuroxime","cefpodoxime",
+    "cephalexin","cefoxitin","ceftaroline","ceftolozane","cefdinir","avibactam","vaborbactam",
+    "imipenem","cilastatin","ertapenem","doripenem","aztreonam",
+    "ciprofloxacin","levofloxacin","moxifloxacin","ofloxacin","gatifloxacin",
+    "azithromycin","erythromycin","clarithromycin","clindamycin",
+    "ampicillin","sulbactam","amoxicillin","clavulan","penicillin","nafcillin","oxacillin","dicloxacillin",
+    "linezolid","tedizolid","daptomycin","tigecycline","doxycycline","minocycline","tetracycline",
+    "gentamicin","tobramycin","amikacin","colistin",
+    "sulfameth","trimethoprim","nitrofurantoin","fosfomycin","rifampin","chloramphenicol",
+    "fluconazole","micafungin","caspofungin","anidulafungin","voriconazole","posaconazole",
+    "isavucon","itraconazole","amphotericin",
+    "acyclovir","valacyclovir","ganciclovir","valganciclovir","oseltamivir","zanamivir",
+    "foscarnet","cidofovir","remdesivir",
+    sep = "|")
+  
+  ## Allergy-protocol entries pass the route filter (IV/PO), so exclude by name.
+  antimicrobial_exclude <- "desensiti|graded challenge|\\bchallenge\\b|test dose"
+  
+  antimicrobial_rx <- all_prescriptions %>% 
+    copy() %>% 
+    .[grepl(antimicrobial_include, 
+            drug, 
+            ignore.case = TRUE) &
+        !grepl(antimicrobial_exclude,
+               drug, 
+               ignore.case = TRUE) &
+        route %in% systemic_routes &
+        ## oral vancomycin (non-absorbed, C. diff) is not systemic therapy:
+        !(grepl("vancomycin", 
+                drug, 
+                ignore.case = TRUE) &
+            route %in% c("PO",
+                         "PO/NG",
+                         "ORAL",
+                         "NG",
+                         "G TUBE",
+                         "J TUBE"))]
+  
+  saveRDS(antimicrobial_rx, here::here("Data/all_antimicrobialevents.rds"))
+}
+
+all_antimicrobialevents <- readRDS(here::here("Data/all_antimicrobialevents.rds")) %>% 
+  setDT()
+
+## Check number of subject IDs
+all_antimicrobialevents[, uniqueN(subject_id)]
+
+## Check number of hadm IDs
+all_antimicrobialevents[, uniqueN(hadm_id)]
+
+
+
+### EMAR (Electronic Medication Administration Record) data --------------------
+if (!file.exists(here::here("Data/all_emar.rds"))) {
+  
+  sql_emar <- glue::glue(
+    "SELECT
+    e.subject_id,
+    e.hadm_id,
+    e.emar_id,
+    e.charttime,
+    e.medication,
+    e.event_txt,
+    d.route,
+    d.dose_given,
+    d.dose_given_unit
+  FROM {hosp_db}.emar AS e
+  LEFT JOIN {hosp_db}.emar_detail AS d
+    ON e.emar_id = d.emar_id AND e.emar_seq = d.emar_seq
+  WHERE e.subject_id IN ({subject_ids_sql_list})
+    AND e.medication IS NOT NULL")
+  
+  all_emar_raw <- run_query(sql_emar)
+  saveRDS(all_emar_raw, here::here("Data/all_emar_raw.rds"))
+  
+  all_emar_raw <- readRDS(here::here("Data/all_emar_raw.rds")) %>%
+    setDT()
+  
+  ## Encounter-level linkage window: an administration belongs to a hospitalisation
+  ## if charttime falls from `microbio_link_lead_h` hours before admission through
+  ## discharge. Reuses the constant defined in the microbiology section.
+  admission_window_emar <- base_cohort %>%
+    copy() %>%
+    .[, .(subject_id,
+          hadm_id,
+          window_start = admittime - lubridate::hours(24),
+          window_end   = dischtime)] %>%
+    unique()
+  
+  ## Rows that already carry a cohort hadm_id keep it unchanged.
+  emar_already_linked <- all_emar_raw %>%
+    copy() %>%
+    .[!is.na(hadm_id)] %>%
+    .[hadm_id %in% base_cohort$hadm_id]
+  
+  ## Rows with a missing hadm_id are matched to an admission by charttime.
+  emar_repaired <- all_emar_raw %>%
+    copy() %>%
+    .[is.na(hadm_id)] %>%
+    .[, hadm_id := NULL] %>%
+    merge(.,
+          admission_window_emar,
+          by = "subject_id",
+          all.x = FALSE,
+          all.y = FALSE,
+          allow.cartesian = TRUE) %>%
+    .[charttime >= window_start &
+        charttime <= window_end] %>%
+    ## resolve rows matching more than one admission window (readmission within
+    ## the lead window): prefer the admission the row falls INSIDE, else the one
+    ## it most immediately precedes.
+    .[, admittime := window_start + lubridate::hours(24)] %>%
+    .[, is_within_admission := charttime >= admittime] %>%
+    .[, gap_to_admit := lubridate::time_length(admittime - charttime, "hours")] %>%
+    .[order(emar_id, -is_within_admission, gap_to_admit)] %>%
+    .[, .SD[1], by = emar_id] %>%
+    .[, `:=` (window_start = NULL,
+              window_end   = NULL,
+              admittime    = NULL,
+              is_within_admission = NULL,
+              gap_to_admit = NULL)]
+  
+  ## Each administration event (emar_id) must map to exactly one hospitalisation
+  stopifnot(
+    emar_repaired[, .(n_hadm = uniqueN(hadm_id)),
+                  by = emar_id][n_hadm > 1, .N] == 0)
+  
+  ## Combine -- same columns and meaning as before the fix
+  all_emar <- rbind(emar_already_linked,
+                    emar_repaired,
+                    use.names = TRUE,
+                    fill = FALSE)
+  
+  ## Repair only adds rows and never leaves a missing/out-of-cohort hadm_id
+  stopifnot(all_emar[, sum(is.na(hadm_id))] == 0)
+  stopifnot(all_emar[, all(hadm_id %in% base_cohort$hadm_id)])
+  stopifnot(nrow(all_emar) >= nrow(emar_already_linked))
+  
+  saveRDS(all_emar, here::here("Data/all_emar.rds"))
+}
+
+
+if(!file.exists(here::here("Data/corticosteroid_emar_details.rds"))) {
+  ## Corticosteroids patterns
+  corticosteroids_patterns <- paste(c("hydrocortisone",
+                                      "hydrocostrisone na succ.",
+                                      "methylprednisolone",
+                                      "dexamethasone",
+                                      "prednisolone",
+                                      "prednisone"),
+                                    collapse = "|")
+  
+  ## SQL query for emar_details
+  sql_corticosteroid_emar_details <- glue::glue("
+  SELECT
+    e.subject_id,
+    e.hadm_id,
+    e.emar_id,
+    e.charttime,
+    e.medication,
+    e.event_txt,
+    d.administration_type,
+    d.route,
+    d.dose_given,
+    d.dose_given_unit
+  FROM {hosp_db}.emar AS e
+  LEFT JOIN {hosp_db}.emar_detail AS d
+    ON e.emar_id = d.emar_id
+  WHERE e.subject_id IN ({subject_ids_sql_list})
+    AND REGEXP_CONTAINS(
+      LOWER(e.medication),
+      '{corticosteroids_patterns}')")
+  
+  corticosteroid_emar_details <- run_query(sql_corticosteroid_emar_details)
+  saveRDS(corticosteroid_emar_details, here::here("Data/corticosteroid_emar_details.rds"))
+}
+
+corticosteroid_emar_details <- readRDS(here::here("Data/corticosteroid_emar_details.rds")) %>% 
+  setDT()
+
+## Check number of subject IDs
+corticosteroid_emar_details[, uniqueN(subject_id)]
+
+## Check number of hadm IDs
+corticosteroid_emar_details[, uniqueN(hadm_id)]
+
+corticosteroid_emar_icu <- corticosteroid_emar_details %>% 
+  copy() %>% 
+  merge(.,
+        stay_lookup,
+        by = c("subject_id",
+               "hadm_id"),
+        all.x = TRUE,
+        all.y = FALSE,
+        allow.cartesian = TRUE) %>% 
+  .[charttime >= icu_intime &
+      charttime <= icu_outtime]
+
+## Check number of subject IDs
+corticosteroid_emar_icu[, uniqueN(subject_id)]
+
+## Check number of hadm IDs
+corticosteroid_emar_icu[, uniqueN(hadm_id)]
+
+
+
+## 4. ICU-SPECIFIC DATA --------------------------------------------------------
+
+### INPUT EVENTS ---------------------------------------------------------------
+## This contains ICU-administered inputs: fluids, vasopressors, medications, infusion 
+## rates, volumes. It is needed for variables like IV fluid administration, vasopressor 
+## use, medication dose/rate, etc.
+if (!file.exists(here::here("Data/all_inputevents.rds"))) {
+sql_inputevents <- glue::glue(
+"SELECT 
+ *
+ FROM {icu_db}.inputevents
+WHERE subject_id IN ({subject_ids_sql_list})")
+
+all_inputevents <- run_query(sql_inputevents)
+saveRDS(all_inputevents, here::here("Data/all_inputevents.rds"))
+}
+
+all_inputevents <- readRDS(here::here("Data/all_inputevents.rds")) %>% 
+  setDT()
+
+## Check number of stay IDs
+all_inputevents[, uniqueN(stay_id)]
+
+
+
+### CHART EVENTS --------------------------------------------------------------- 
 ## Pull chart event look-up table to select relevant item IDs
+if (!file.exists(here::here("Data/chartevents_itemids.rds"))) {
 sql_chartevents_itemids <- glue::glue(
   "SELECT
       itemid,
@@ -426,8 +793,10 @@ sql_chartevents_itemids <- glue::glue(
   FROM {icu_db}.d_items
   WHERE linksto = 'chartevents'")
 
-# chartevents_itemids <- run_query(sql_chartevents_itemids)
-# saveRDS(chartevents_itemids, here::here("Data/chartevents_itemids.rds"))
+chartevents_itemids <- run_query(sql_chartevents_itemids)
+saveRDS(chartevents_itemids, here::here("Data/chartevents_itemids.rds"))
+}
+
 chartevents_patterns <- c("heart rate",
                           "blood pressure",
                           "hemoglobin",
@@ -521,6 +890,8 @@ chart_itemids <- readRDS(here::here("Data/chartevents_itemids.rds")) %>%
     ignore.case = TRUE
   )]
 
+if (!file.exists(here::here("Data/all_chartevents.rds"))) {
+
 ## String of target lab item IDs
 sql_chart_itemids <- paste(unique(chart_itemids$itemid), collapse = ", ")
 
@@ -540,15 +911,17 @@ sql_chartevents <- glue::glue("
   FROM {icu_db}.chartevents
   WHERE stay_id IN ({stay_ids_sql_list}) AND itemid IN ({sql_chart_itemids})")
 
-# all_chartevents <- run_query(sql_chartevents)
-# saveRDS(all_chartevents, here::here("Data/all_chartevents.rds"))
+all_chartevents <- run_query(sql_chartevents)
+saveRDS(all_chartevents, here::here("Data/all_chartevents.rds"))
+}
+
 all_chartevents <- readRDS(here::here("Data/all_chartevents.rds")) %>% 
   setDT()
 
 ## Check number of stay IDs
 all_chartevents[, uniqueN(stay_id)]
   
-## 7. HEIGHT -----------------------------------------------------------
+#### HEIGHT --------------------------------------------------------------------
 ## Pull patient admission height from chart data
 height_itemids <- d_items %>% 
   copy() %>% 
@@ -642,180 +1015,36 @@ patient_height <- patient_height %>%
 stopifnot(nrow(patient_height[height_valid != "valid: <= 2 cm difference"]) == 0)
 
 
-## 8. PROCEDURE EVENTS ------------------------------------------------
-## Pull procedure event event look-up table to select relevant item IDs
-sql_procedureevents_itemids <- glue::glue(
-  "SELECT
-      itemid,
-      label,
-      abbreviation,
-      category,
-      unitname,
-      param_type,
-      lownormalvalue,
-      highnormalvalue
-  FROM {icu_db}.d_items
-  WHERE linksto = 'procedureevents'")
-
-# procedureevents_itemids <- run_query(sql_procedureevents_itemids)
-# saveRDS(procedureevents_itemids, here::here("Data/procedureevents_itemids.rds"))
-procedureevents_patterns <- c("picc",
-                              "hickamn",
-                              "tunneled",
-                              "trauma line")
-
-## Pull procedureevents for CVC lines
-procedure_itemids <- readRDS(here::here("Data/procedureevents_itemids.rds")) %>% 
-  setDT() %>% 
-  .[grepl(
-    paste(procedureevents_patterns, collapse = "|"),
-    label,
-    ignore.case = TRUE
-  )]
-
-## String of target lab item IDs
-sql_procedure_itemids <- paste(unique(procedure_itemids$itemid), collapse = ", ")
+### PROCEDURE EVENTS -----------------------------------------------------------
+if (!file.exists(here::here("Data/all_procedureevents.rds"))) {
 
 sql_procs <- glue::glue(
 "SELECT 
-    proc.stay_id,
-    proc.starttime,
-    proc.itemid,
-    item.label
-  FROM {icu_db}.procedureevents AS proc
-  LEFT JOIN {icu_db}.d_items AS item 
-    ON proc.itemid = item.itemid
-  WHERE proc.stay_id IN ({stay_ids_sql_list})
-    AND proc.itemid IN ({sql_procedure_itemids})")
+  *
+  FROM {icu_db}.procedureevents
+  WHERE stay_id IN ({stay_ids_sql_list})")
 
-# all_procs <- run_query(sql_procs)
-# saveRDS(all_procs, here::here("Data/all_procs.rds"))
-all_procs <- readRDS(here::here("Data/all_procs.rds")) %>% 
+all_procedureevents <- run_query(sql_procs)
+saveRDS(all_procedureevents, here::here("Data/all_procedureevents.rds"))
+}
+
+all_procedureevents <- readRDS(here::here("Data/all_procedureevents.rds")) %>% 
   setDT()
 
 ## Check number of stay IDs
-all_procs[, uniqueN(stay_id)]
+all_procedureevents[, uniqueN(stay_id)]
 
 
-## 9. PRESCRIPTIONS ---------------------------------------------------
-# Pull prescriptions
-sql_prescriptions <- glue::glue(
-"SELECT 
-subject_id, 
-hadm_id, 
-starttime, 
-drug, 
-route, 
-dose_val_rx, 
-dose_unit_rx
-  FROM {hosp_db}.prescriptions
-  WHERE hadm_id IN ({hadm_ids_sql_list}) AND drug IS NOT NULL")
-
-# all_prescriptions <- run_query(sql_prescriptions)
-# saveRDS(all_prescriptions, here::here("Data/all_prescriptions.rds"))
-all_prescriptions <- readRDS(here::here("Data/all_prescriptions.rds")) %>% 
-  setDT()
-
-## Check number of subject IDs
-all_prescriptions[, uniqueN(subject_id)]
-
-## Check number of hadm IDs
-all_prescriptions[, uniqueN(hadm_id)]
-
-all_prescriptions_icu <- all_prescriptions %>% 
-  copy() %>% 
-  merge(.,
-        stay_lookup,
-        by = c("subject_id",
-               "hadm_id"),
-        all.x = TRUE,
-        all.y = FALSE,
-        allow.cartesian = TRUE) %>% 
-  .[starttime >= icu_intime &
-      starttime <= icu_outtime]
-
-## Check number of subject IDs
-all_prescriptions_icu[, uniqueN(subject_id)]
-
-## Check number of hadm IDs
-all_prescriptions_icu[, uniqueN(hadm_id)]
 
 
-## 10. EMAR (Electronic Medication Administration Record) data ----------
-## Corticosteroids patterns
-corticosteroids_patterns <- paste(c("hydrocortisone",
-                              "hydrocostrisone na succ.",
-                              "methylprednisolone",
-                              "dexamethasone",
-                              "prednisolone",
-                              "prednisone"),
-                              collapse = "|")
 
-# sql_emarevents <- glue::glue(
-#     "SELECT *
-#     FROM {hosp_db}.emar
-#     WHERE subject_id IN ({subject_ids_sql_list})")
-#   
-# # all_emarevents <- run_query(sql_emarevents)
-# # saveRDS(all_emarevents, here::here("Data/all_emarevents.rds"))
-# all_emarevents <- readRDS(here::here("Data/all_emarevents.rds")) %>% 
-#     setDT() %>% 
-#     .[grepl(corticosteroids_patterns,
-#             medication,
-#             ignore.case = TRUE)]
-  
-## SQL query for emar_details
-sql_corticosteroid_emar_details <- glue::glue("
-  SELECT
-    e.subject_id,
-    e.hadm_id,
-    e.emar_id,
-    e.charttime,
-    e.medication,
-    e.event_txt,
-    d.administration_type,
-    d.route,
-    d.dose_given,
-    d.dose_given_unit
-  FROM {hosp_db}.emar AS e
-  LEFT JOIN {hosp_db}.emar_detail AS d
-    ON e.emar_id = d.emar_id
-  WHERE e.subject_id IN ({subject_ids_sql_list})
-    AND REGEXP_CONTAINS(
-      LOWER(e.medication),
-      '{corticosteroids_patterns}')")
-  
-# corticosteroid_emar_details <- run_query(sql_corticosteroid_emar_details)
-# saveRDS(corticosteroid_emar_details, here::here("Data/corticosteroid_emar_details.rds"))
-corticosteroid_emar_details <- readRDS(here::here("Data/corticosteroid_emar_details.rds")) %>% 
-  setDT()
 
-## Check number of subject IDs
-corticosteroid_emar_details[, uniqueN(subject_id)]
 
-## Check number of hadm IDs
-corticosteroid_emar_details[, uniqueN(hadm_id)]
 
-corticosteroid_emar_icu <- corticosteroid_emar_details %>% 
-  copy() %>% 
-  merge(.,
-        stay_lookup,
-        by = c("subject_id",
-               "hadm_id"),
-        all.x = TRUE,
-        all.y = FALSE,
-        allow.cartesian = TRUE) %>% 
-  .[charttime >= icu_intime &
-      charttime <= icu_outtime]
-
-## Check number of subject IDs
-corticosteroid_emar_icu[, uniqueN(subject_id)]
-
-## Check number of hadm IDs
-corticosteroid_emar_icu[, uniqueN(hadm_id)]
   
 
-## 11. INGREDIENTS ----------------------------------------------------
+### INGREDIENTS ----------------------------------------------------------------
+if (!file.exists(here::here("Data/all_ingredients.rds"))) {
 # Pull ingredients
 sql_ingredients <- glue::glue(
   "SELECT 
@@ -830,8 +1059,10 @@ sql_ingredients <- glue::glue(
   FROM {icu_db}.ingredientevents
   WHERE hadm_id IN ({hadm_ids_sql_list})")
 
-# all_ingredients <- run_query(sql_ingredients)
-# saveRDS(all_ingredients, here::here("Data/all_ingredients.rds"))
+all_ingredients <- run_query(sql_ingredients)
+saveRDS(all_ingredients, here::here("Data/all_ingredients.rds"))
+}
+
 all_ingredients <- readRDS(here::here("Data/all_ingredients.rds")) %>% 
   setDT()
 
@@ -845,7 +1076,8 @@ all_ingredients[, uniqueN(hadm_id)]
 all_ingredients[, uniqueN(stay_id)]
 
 
-## 12. OUTPUTEVENTS ---------------------------------------------------
+### OUTPUTEVENTS ---------------------------------------------------------------
+if (!file.exists(here::here("Data/all_outputevents.rds"))) {
 # Pull outputevents
 sql_outputevents <- glue::glue(
   "SELECT 
@@ -859,8 +1091,10 @@ sql_outputevents <- glue::glue(
   FROM {icu_db}.outputevents
   WHERE hadm_id IN ({hadm_ids_sql_list})")
 
-# all_outputevents <- run_query(sql_outputevents)
-# saveRDS(all_outputevents, here::here("Data/all_outputevents.rds"))
+all_outputevents <- run_query(sql_outputevents)
+saveRDS(all_outputevents, here::here("Data/all_outputevents.rds"))
+}
+
 all_outputevents <- readRDS(here::here("Data/all_outputevents.rds")) %>% 
   setDT()
 
@@ -874,7 +1108,7 @@ all_outputevents[, uniqueN(hadm_id)]
 all_outputevents[, uniqueN(stay_id)]
 
 
-## 13. SEPTIC SHOCK AND SEPSIS-INDUCED HYPOPERFUSION --------------------
+## 5. SEPTIC SHOCK -------------------------------------------------------------
 ## Define septic shock
 ## sepsis + vasopressor administration (vasporessor = 1) + lactate > 2
 ## Septic shock is a subset of sepsis in which profound circulatory,
@@ -941,44 +1175,9 @@ quantile(all_lactateevents$valuenum,
 all_lactateevents <- all_lactateevents %>% 
   copy() %>% 
   .[!is.na(charttime) & 
-      !is.na(valuenum) &
       valueuom == "mmol/L" &
       valuenum >= 0 &
       valuenum <= 30]
-
-# ## 6 hour window after sepsis onset
-# ## Allow 1 hour before sepsis onset to account for
-# ## documentation timing (grace period)
-# lac_window <- lactate_events %>% 
-#   copy() %>% 
-#   merge(.,
-#         sepsis_onset,
-#         by = c("subject_id",
-#                "hadm_id",
-#                "stay_id"),
-#         all.x = TRUE,
-#         all.y = FALSE,
-#         allow.cartesian = TRUE) %>% 
-#   .[
-#     # charttime >= sepsis_onset - hours(1) &
-#     #   charttime <= sepsis_onset + hours(24) &
-#       !is.na(valuenum) &
-#       valuenum > 2 &
-#       valueuom == "mmol/L"] %>% 
-#   ## Select first vasopressor administration
-#   # .[order(charttime),
-#   #   .SD[1], 
-#   #   by = .(subject_id,
-#   #          hadm_id,
-#   #          stay_id)] %>% 
-#   .[, .(subject_id,
-#         hadm_id,
-#         stay_id,
-#         lactate_over2 = TRUE,
-#         # first_lactate_over2 = valuenum,
-#         lactate_value = valuenum,
-#         # first_lactate_over2_time = charttime
-#         lactate_time = charttime)]
 
 ## Vasopressor itemids
 ## Vasopressors include Norepinephrine, Epinephrine, Dopamine, Angiotensin II,
@@ -1044,7 +1243,7 @@ lactate_events_shock <- all_lactateevents %>%
         allow.cartesian = TRUE) %>% 
   ## Broad episode restriction before pairing with vasopressors
   .[charttime >= sepsis_onset - hours(6) &
-      charttime <= sepsis_onset + hours(24)] %>% 
+      charttime <= sepsis_onset + hours(24)] %>%
   .[, .(subject_id,
         hadm_id,
         stay_id,
@@ -1057,12 +1256,16 @@ lactate_events_shock <- all_lactateevents %>%
 ## Qualifying vasopressor administration for the septic shock proxy
 vasopressor_events_shock <- all_vasopressorevents %>% 
   copy() %>% 
-  .[vaso_label %in% c("Norepinephrine",
-                 "Epinephrine",
-                 "Dopamine",
-                 "Angiotensin II",
-                 "Vasopressin",
-                 "Phenylephrine")] %>% 
+  .[vaso_label == "Epinephrine.",
+    vaso_label := "Epinephrine"] %>% 
+  # .[vaso_label %in% c("Norepinephrine",
+  #                     "Epinephrine",
+  #                     "Dopamine",
+  #                     "Angiotensin II (Giapreza)",
+  #                     "Vasopressin",
+  #                     "Phenylephrine",
+  #                     "Phenylephrine (50/250)",
+  #                     "Phenylephrine (200/250)")] %>% 
   .[!is.na(vaso_start) &
       vaso_rate > 0] %>% 
   .[, .(stay_id,
@@ -1112,7 +1315,6 @@ first_septic_shock <- septic_shock_candidates %>%
   ## with both criteria completed within 24 h of sepsis onset
   .[lactate_time >= vaso_start - hours(6) &
       lactate_time <= pmin(vaso_end,
-                           vaso_start + hours(24),
                            sepsis_onset + hours(24))] %>% 
   .[, time_diff := 
       abs(lubridate::time_length(vaso_start -
@@ -1139,6 +1341,27 @@ first_septic_shock <- septic_shock_candidates %>%
         shock_vaso = vaso_label,
         shock_vaso_start = vaso_start,
         shock_vaso_end = vaso_end)]
+
+## Add septic shock and hypoperfusion variables to ssc variable data
+sepsis_base_cohort_data <- base_cohort %>%
+  copy() %>%
+  merge(.,
+        first_septic_shock,
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id"),
+        all.x = TRUE,
+        all.y = FALSE) %>% 
+  .[, septic_shock_proxy := fcase(
+    
+    sepsis3 == TRUE &
+      !is.na(septic_shock_onset_time),
+    TRUE,
+    
+    sepsis3 == TRUE,
+    FALSE,
+    
+    default = NA)]
 
 ## Septic shock was operationalized among patients meeting the derived Sepsis-3 
 ## criteria as temporally concurrent vasopressor administration and serum lactate
@@ -1179,7 +1402,7 @@ first_septic_shock <- septic_shock_candidates %>%
 #   ## fluid resuscitation with hypotension and/or elevated lactate
 #   ## We use serum lactate > 2mmol/L within +6/-1  hours of suspected infection time
 #   ## as a proxy for sepsis-induced hypoperfusion
-#   .[, hypoperfusion_proxy := lactate_over2] %>% 
+#   .[, hypoperfusion_proxy := lactate_ov  er2] %>% 
 #   .[, septic_shock_onset_time := fifelse(
 #     septic_shock_proxy,
 #     pmax(first_lactate_over2_time,
@@ -1188,40 +1411,205 @@ first_septic_shock <- septic_shock_candidates %>%
 #     as.POSIXct(NA)
 #   )]
 
-## Add septic shock and hypoperfusion variables to ssc variable data
+## 6. SEPSIS-INDUCED HYPOPERFUSION ---------------------------------------------
+## Recommendation 10 (2026 SSC) targets "sepsis-induced hypoperfusion or septic
+## shock". Per the guideline text, sepsis-induced hypoperfusion is identified by
+## elevated lactate. The 2026 guideline adopts the Sepsis-3 lactate threshold of
+## > 2 mmol/L, demoting the historical >= 4 mmol/L threshold. Relative
+## hypotension (SBP below the patient's own pre-morbid baseline) is not
+## operationalizable in MIMIC-IV and is omitted (documented as a limitation).
+## Septic shock is a subset of hypoperfusion, so shock onset is unioned in as a
+## third qualifying event. Hypoperfusion onset is the earliest qualifying event
+## within the sepsis episode; this generalizes septic_shock_onset_time.
 
-sepsis_base_cohort_data <- base_cohort %>% 
-  copy() %>% 
+## Lactate > 2 mmol/L within the sepsis episode
+lactate_hypoperfusion <- all_lactateevents %>%
+  copy() %>%
+  .[valuenum > 2] %>%
   merge(.,
-        first_septic_shock,
+        sepsis_onset,
+        by = c("subject_id",
+               "hadm_id"),
+        all = FALSE,
+        allow.cartesian = TRUE) %>%
+  .[charttime >= sepsis_onset - hours(6) &
+      charttime <= sepsis_onset + hours(24)] %>%
+  .[, .(hp_lactate_time = min(charttime)),
+    by = .(subject_id,
+           hadm_id,
+           stay_id)]
+
+## Blood-pressure item IDs for hypotension (mean + systolic, arterial +
+## non-invasive). chartevents is ICU-only, so pre-ICU hypotension is not
+## observable -- a coverage limitation shared with the shock proxy.
+# bp_hypoperfusion_itemids <- chart_itemids %>%
+#   copy() %>%
+#   .[label %in% c("Arterial Blood Pressure mean",
+#                  "Non Invasive Blood Pressure mean",
+#                  "Arterial Blood Pressure systolic",
+#                  "Non Invasive Blood Pressure systolic",
+#                  ## manual cuff readings feed the SBP < 90 arm only
+#                  ## (there is no manual mean, so MAP is unaffected)
+#                  "Manual Blood Pressure Systolic Left",
+#                  "Manual Blood Pressure Systolic Right")]
+
+## Hypotension: MAP < 65 or SBP < 90 within the sepsis episode.
+## At each timestamp, arterial is preferred over non-invasive (as in rec 13),
+## resolved separately for mean and systolic pressure.
+# blood_pressure_events <- all_chartevents %>%
+#   copy() %>%
+#   ## only patients in sepsis base cohort
+#   .[stay_id %in% base_cohort$stay_id] %>%
+#   ## Blood pressure item IDs associated with hypoperfusion
+#   .[itemid %in% bp_hypoperfusion_itemids$itemid] %>%
+#   .[!is.na(valuenum)] %>%
+#   merge(.,
+#         bp_hypoperfusion_itemids[, .(itemid,
+#                                      bp_label = label)],
+#         by = "itemid") %>%
+#   .[, bp_kind := fifelse(grepl("mean",
+#                                bp_label),
+#                          "map",
+#                          "sbp")] %>%
+#   ## measurement-source preference: arterial > non-invasive > manual cuff
+#   .[, bp_source_rank := fcase(
+#     grepl("Arterial", bp_label), 1L,
+#     grepl("Non Invasive", bp_label), 2L,
+#     grepl("Manual", bp_label), 3L,
+#     default = NA_integer_)] %>%
+#   ## plausibility bounds (MAP as in rec 13; SBP physiologic range)
+#   .[(bp_kind == "map" &
+#        valuenum >= 20 &
+#        valuenum <= 200) |
+#       (bp_kind == "sbp" &
+#          valuenum >= 40 &
+#          valuenum <= 300)]
+
+# hypotension_hypoperfusion <- blood_pressure_events %>% 
+#   copy() %>% 
+#   ## prefer arterial over non-invasive over manual at each timestamp, per kind
+#   .[order(stay_id,
+#           charttime,
+#           bp_kind,
+#           bp_source_rank)] %>%
+#   .[, .SD[1],
+#     by = .(stay_id,
+#            charttime,
+#            bp_kind)] %>%
+#   ## hypotension threshold, after source de-duplication
+#   .[(bp_kind == "map" &
+#        valuenum < 65) |
+#       (bp_kind == "sbp" &
+#          valuenum < 90)] %>% 
+#   merge(.,
+#         sepsis_onset[, .(subject_id,
+#                          hadm_id,
+#                          stay_id,
+#                          sepsis_onset)],
+#         by = "stay_id",
+#         all = FALSE) %>% 
+#   .[charttime >= sepsis_onset - hours(6) &
+#       charttime <= sepsis_onset + hours(24)] %>%
+#   .[, .(hp_hypotension_time = min(charttime)),
+#     by = .(subject_id,
+#            hadm_id,
+#            stay_id)]
+
+## Septic shock onset as a qualifying hypoperfusion event
+shock_hypoperfusion <- first_septic_shock %>%
+  copy() %>%
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        hp_shock_time = septic_shock_onset_time)]
+
+## Hypoperfusion onset = earliest qualifying event (lactate > 2,
+## or septic shock onset), within the sepsis episode. The three event tables are
+## combined with full outer joins so a stay is kept if it meets any one of them,
+## then the onset is the earliest of the (possibly missing) event times.
+hypoperfusion_onset <- lactate_hypoperfusion %>%
+  copy() %>%
+  # merge(.,
+  #       hypotension_hypoperfusion,
+  #       by = c("subject_id",
+  #              "hadm_id",
+  #              "stay_id"),
+  #       all = TRUE) %>%
+  merge(.,
+        shock_hypoperfusion,
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id"),
+        all = TRUE) %>%
+  .[, hypoperfusion_onset_time := fifelse(
+    !is.na(hp_shock_time), 
+    hp_shock_time, 
+    hp_lactate_time)] %>%
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        hypoperfusion_onset_time,
+        hp_lactate_time,
+        # hp_hypotension_time,
+        hp_shock_time)]
+
+
+## Add septic shock and hypoperfusion variables to ssc variable data
+sepsis_base_cohort_data <- sepsis_base_cohort_data %>%
+  copy() %>%
+  merge(.,
+        hypoperfusion_onset,
         by = c("subject_id",
                "hadm_id",
                "stay_id"),
         all.x = TRUE,
-        all.y = FALSE) %>% 
-  .[, septic_shock_proxy := fcase(
-    
+        all.y = FALSE) %>%
+  .[, hypoperfusion_proxy := fcase(
+
     sepsis3 == TRUE &
-      !is.na(septic_shock_onset_time),
+      !is.na(hypoperfusion_onset_time),
     TRUE,
-    
+
     sepsis3 == TRUE,
     FALSE,
-    
+
     default = NA)]
 
 saveRDS(sepsis_base_cohort_data,
         here::here("Data/sepsis_base_cohort_data.rds"))
 
-## 14. RADIOLOGY EVENTS FROM MIMICIV-NOTE -----------------------------
+## Number of patients with septic shock
+sepsis_base_cohort_data[septic_shock_proxy == TRUE, uniqueN(stay_id)]
+
+## Number of patients with septic shock onset before sepsis onset
+sepsis_base_cohort_data[septic_shock_onset_time < suspected_infection_time, uniqueN(stay_id)]
+
+## Number of patients with septic shock onset at or after sepsis onset
+sepsis_base_cohort_data[septic_shock_onset_time >= suspected_infection_time, uniqueN(stay_id)]
+
+## Number of patients with sepsis-induced hypoperfusion (incl. septic shock)
+sepsis_base_cohort_data[hypoperfusion_proxy == TRUE, uniqueN(stay_id)]
+
+## Qualifying-event breakdown for hypoperfusion (patients can meet >1)
+sepsis_base_cohort_data[hypoperfusion_proxy == TRUE,
+                        .(lactate = sum(!is.na(hp_lactate_time)),
+                          # hypotension = sum(!is.na(hp_hypotension_time)),
+                          shock = sum(!is.na(hp_shock_time)))]
+
+
+## 7. NOTE-MIMICIV -------------------------------------------------------------
+###  RADIOLOGY EVENTS ----------------------------------------------------------
+if (!file.exists(here::here("Data/all_radiologyevents.rds"))) {
 sql_radiology <- glue::glue(
   "SELECT
     *
   FROM {note_db}.radiology
   WHERE hadm_id IN ({hadm_ids_sql_list})")
 
-# all_radiologyevents <- run_query(sql_radiology)
-# saveRDS(all_radiology_events, here::here("Data/all_radiologyevents.rds"))
+all_radiologyevents <- run_query(sql_radiology)
+saveRDS(all_radiology_events, here::here("Data/all_radiologyevents.rds"))
+}
+
 all_radiologyevents <- readRDS(here::here("Data/all_radiologyevents.rds")) %>% 
   setDT()
 
@@ -1232,15 +1620,18 @@ all_radiologyevents[, uniqueN(subject_id)]
 all_radiologyevents[, uniqueN(hadm_id)]
 
 
-## 15. DISCHARGE NOTES FROM MIMICIV-NOTE ------------------------------
+### DISCHARGE NOTES FROM MIMICIV-NOTE ------------------------------------------
+if (!file.exists(here::here("Data/all_dischargeevents.rds"))) {
 sql_discharge <- glue::glue(
   "SELECT
   *
   FROM {note_db}.discharge
   WHERE hadm_id IN ({hadm_ids_sql_list})")
 
-# all_dischargeevents <- run_query(sql_discharge)
-# saveRDS(all_dischargeevents, here::here("Data/all_dischargeevents.rds"))
+all_dischargeevents <- run_query(sql_discharge)
+saveRDS(all_dischargeevents, here::here("Data/all_dischargeevents.rds"))
+}
+
 all_dischargeevents <- readRDS(here::here("Data/all_dischargeevents.rds")) %>% 
   setDT()
 
@@ -1249,3 +1640,138 @@ all_dischargeevents[, uniqueN(subject_id)]
 
 ## Check number of hadm IDs
 all_dischargeevents[, uniqueN(hadm_id)]
+
+## 8. EMERGENCY DEPARTMENT DATA ------------------------------------------------
+### Stays --------------------------------------------------------------------
+if (!file.exists(here::here("Data/ed_stays.rds"))) {
+  
+  sql_edstays <- glue::glue(
+    "SELECT subject_id, hadm_id, stay_id,
+            intime  AS ed_intime,
+            outtime AS ed_outtime
+     FROM {ed_db}.edstays
+     WHERE subject_id IN ({subject_ids_sql_list})")
+  
+  ed_stays <- run_query(sql_edstays)
+  saveRDS(ed_stays, here::here("Data/ed_stays.rds"))
+}
+
+all_edstays <- readRDS(here::here("Data/ed_stays.rds")) %>%
+  setDT()
+
+### Diagnosis ------------------------------------------------------------------
+if (!file.exists(here::here("Data/all_ed_diagnosisevents.rds"))) {
+  
+  sql_ed_diagnosis <- glue::glue(
+  "SELECT
+  *
+  FROM {ed_db}.diagnosis
+  WHERE subject_id IN ({subject_ids_sql_list})")
+
+all_ed_diagnosisevents <- run_query(sql_ed_diagnosis)
+saveRDS(all_ed_diagnosisevents, here::here("Data/all_ed_diagnosisevents.rds"))
+}
+
+all_ed_diagnosisevents <- readRDS(here::here("Data/all_ed_diagnosisevents.rds")) %>% 
+  setDT() %>% 
+  .[, icd_title := tolower(trimws(icd_title))]
+
+## ICD codes sepsis
+sepsis_icd <- all_ed_diagnosisevents %>% 
+  copy() %>% 
+  .[icd_title %in% c("septicemia nos", ## older term for sepsis (bloodstream infection)
+                     "sepsis, unspecified organism",
+                     "sepsis",
+                     "severe sepsis",
+                     "gram-negative sepsis, unspecified",
+                     "other specified sepsis",
+                     "severe sepsis without septic shock",
+                     "sepsis following a procedure, initial encounter"),
+    .(icd_code,
+      icd_version,
+      icd_title)] %>% 
+  unique()
+
+## ICD codes septic shock
+septic_shock_icd <- all_ed_diagnosisevents %>% 
+  copy() %>% 
+  .[icd_title %in% c("septic shock",
+                     "severe sepsis with septic shock",
+                     "postprocedural septic shock, initial encounter"),
+    .(icd_code,
+      icd_version,
+      icd_title)] %>% 
+  unique()
+
+
+### Medicine Reconciliation ----------------------------------------------------
+## Medications that patients are currently on 
+## upon emergency department administration
+if(!file.exists(here::here("Data/all_medreconevents.rds"))) {
+  
+  sql_medrecon <- glue::glue(
+    "SELECT
+  *
+  FROM {ed_db}.medrecon
+  WHERE subject_id IN ({subject_ids_sql_list})")
+  
+all_medreconevents <- run_query(sql_medrecon)
+saveRDS(all_medreconevents, here::here("Data/all_medreconevents.rds"))
+}
+
+all_medreconevents <- readRDS(here::here("Data/all_medreconevents.rds")) %>% 
+  setDT()
+
+
+### Medicine Dispensations -----------------------------------------------------
+## Medicine dispensations made via the Pyxis system
+if(!file.exists(here::here("Data/all_dispenseevents.rds"))) {
+  
+  sql_dispense <- glue::glue(
+    "SELECT
+  *
+  FROM {ed_db}.pyxis
+  WHERE subject_id IN ({subject_ids_sql_list})")
+  
+  all_dispenseevents <- run_query(sql_dispense)
+  saveRDS(all_dispenseevents, here::here("Data/all_dispenseevents.rds"))
+}
+
+all_dispenseevents <- readRDS(here::here("Data/all_dispenseevents.rds")) %>% 
+  setDT() %>% 
+  .[, name := tolower(trimws(name))]
+
+
+### Triage ---------------------------------------------------------------------
+if (!file.exists(here::here("Data/all_edtriage.rds"))) {
+  
+  sql_edtriage <- glue::glue(
+    "SELECT
+    *
+    FROM {ed_db}.triage
+    WHERE subject_id IN ({subject_ids_sql_list})")
+  
+  all_edtriage <- run_query(sql_edtriage)
+  saveRDS(all_edtriage, here::here("Data/all_edtriage.rds"))
+}
+ 
+ all_edtriage <- readRDS(here::here("Data/all_edtriage.rds")) %>% 
+   setDT()
+
+ 
+ ### Vital Signs ---------------------------------------------------------------
+ if (!file.exists(here::here("Data/all_edvitalsign.rds"))) {
+   
+   sql_edvital <- glue::glue(
+     "SELECT
+    *
+    FROM {ed_db}.vitalsign
+    WHERE subject_id IN ({subject_ids_sql_list})")
+   
+   all_edvitalsign <- run_query(sql_edvital)
+   saveRDS(all_edvitalsign, here::here("Data/all_edvitalsign.rds"))
+ }
+ 
+all_edvitalsign <- readRDS(here::here("Data/all_edvitalsign.rds")) %>% 
+  setDT()
+
