@@ -12,6 +12,13 @@ library(flowchart)
 ## Link Big Query Data
 library(bigrquery)
 
+## Causal ML packages
+library(DoubleML)
+library(mlr3)
+library(mlr3learners)
+library(ranger)
+library(xgboost)
+
 ## Color scheme for plots
 pastel.blue   <- "lightblue"
 blue   = "#7EC8E3"

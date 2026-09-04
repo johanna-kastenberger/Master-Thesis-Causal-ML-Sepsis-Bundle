@@ -1051,6 +1051,131 @@ ed_physio_signals[!is.na(ed_tachypnea_time),
                                              3))]
 
 
+
+
+
+
+## 5.1 PHYSIOLOGY-BASED SEPTIC SHOCK ONSET -------------------------------------
+## Re-times onset from vasopressor ADMINISTRATION (ICU-lagged treatment) to the
+## vasopressor REQUIREMENT (physiology): sustained hypotension + lactate > 2.
+## Hypotension = ED vitalsign (pre-ICU) UNION chartevents (ICU). Pre-ICU-corrected
+## for the ED subset, ICU-bounded otherwise. Membership (vaso + lactate) UNCHANGED.
+
+## BP itemids (mean + systolic; arterial, non-invasive, manual)
+bp_itemids <- chart_itemids[label %in% c("Arterial Blood Pressure mean",
+                                         "Non Invasive Blood Pressure mean",
+                                         "Arterial Blood Pressure systolic",
+                                         "Non Invasive Blood Pressure systolic",
+                                         "Manual Blood Pressure Systolic Left",
+                                         "Manual Blood Pressure Systolic Right")]
+
+
+## low-BP readings: ED SBP + ICU MAP/SBP
+ed_bp <- all_edvitalsign %>% 
+  copy() %>%
+  merge(.,
+        all_edstays[, .(stay_id, 
+                        hadm_id)], 
+        by = "stay_id") %>%
+  .[, .(subject_id, 
+        hadm_id, 
+        charttime, 
+        val = as.numeric(sbp), 
+        kind = "sbp")]
+
+icu_bp <- all_chartevents %>% 
+  copy() %>%
+  .[itemid %in% bp_itemids$itemid & 
+      !is.na(valuenum)] %>%
+  merge(.,
+        bp_itemids[, .(itemid, 
+                       lbl = label)], 
+        by = "itemid") %>%
+  .[, kind := fifelse(grepl("mean", 
+                            lbl), 
+                      "map", 
+                      "sbp")] %>%
+  .[, .(subject_id,
+        hadm_id,
+        charttime, 
+        val = valuenum, 
+        kind)]
+
+low_bp <- rbind(ed_bp, 
+                icu_bp) %>%
+  .[(kind == "map" & 
+       val >= 20 & 
+       val <= 200 & 
+       val < 65) |
+      (kind == "sbp" & 
+         val >= 40 & 
+         val <= 300 &
+         val < 90)] %>%
+  merge(.,
+        sepsis_base_cohort_data[septic_shock_proxy == TRUE,
+                                .(subject_id, 
+                                  hadm_id, 
+                                  suspected_infection_time)], 
+        by = c("subject_id",
+               "hadm_id")) %>%
+  .[charttime >= suspected_infection_time - hours(6) &
+      charttime <= suspected_infection_time + hours(24),
+    .(subject_id, 
+      hadm_id, t = charttime)] %>% 
+  unique()
+
+## sustained hypotension onset = earliest low reading with another low reading 1–6h later
+sustained_hypo <- low_bp[low_bp, 
+                         on = .(subject_id, 
+                                hadm_id),
+                         allow.cartesian = TRUE,
+                         .(subject_id, 
+                           hadm_id, 
+                           t0 = x.t, 
+                           t1 = i.t)] %>%
+  .[t1 >= t0 + hours(1) & 
+      t1 <= t0 + hours(6)] %>%
+  .[, .(hypo_onset = min(t0)),
+    by = .(subject_id, 
+           hadm_id)]
+
+## physio onset = pmax(sustained hypotension, first lactate>2);
+## fall back to the vasopressor-based onset where hypotension is unobserved
+physio_onset <- sepsis_base_cohort_data[septic_shock_proxy == TRUE,
+                                        .(subject_id,
+                                          hadm_id, 
+                                          stay_id, 
+                                          suspected_infection_time,
+                                          septic_shock_onset_time, 
+                                          shock_lactate_time)] %>%
+  merge(.,
+        sustained_hypo, 
+        by = c("subject_id",
+               "hadm_id"), 
+        all.x = TRUE) %>%
+  merge(.,
+        lactate_hypoperfusion[, .(subject_id,
+                                  hadm_id, 
+                                  hp_lactate_time)],
+        by = c("subject_id",
+               "hadm_id"), 
+        all.x = TRUE) %>%
+  .[, lactate_onset := fcoalesce(hp_lactate_time, 
+                                 shock_lactate_time)] %>%
+  .[, physio_shock_onset := fifelse(!is.na(hypo_onset),
+                                    hypo_onset,                      
+                                    septic_shock_onset_time)]
+
+## comparison
+physio_onset[, .(
+  n = .N,
+  with_sustained_hypo = sum(!is.na(hypo_onset)),
+  median_shift_vs_current_h = round(median(as.numeric(
+    difftime(physio_shock_onset, septic_shock_onset_time, units="hours")), na.rm=TRUE), 1),
+  earlier_than_current_pct = round(mean(physio_shock_onset < septic_shock_onset_time, na.rm=TRUE), 3),
+  physio_before_sepsis_pct  = round(mean(physio_shock_onset < suspected_infection_time, na.rm=TRUE), 3))]
+
+
 ## xx 4 RECOMMENDATION ---------------------------------------------------------
 rec4_label <- ssc_recommendations %>% 
   copy() %>% 
