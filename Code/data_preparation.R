@@ -176,7 +176,6 @@ hadm_ids_sql_list <- paste(unique(base_cohort$hadm_id), collapse = ",")
 
 ## Look-up table with subject ID, hospital admission ID and stay ID
 stay_lookup <- base_cohort %>%
-  copy() %>% 
   .[, .(subject_id, 
         hadm_id, 
         stay_id, 
@@ -211,7 +210,6 @@ d_items <- readRDS(here::here("Data/d_items.rds")) %>%
 
 ## Categories of labels in d_items lookup table
 d_items_categories <- d_items %>% 
-  copy() %>% 
   .[, unique(category)]
 
 ## 3. HOSPITAL-WIDE DATA -------------------------------------------------------
@@ -249,6 +247,7 @@ if (!file.exists(here::here("Data/all_microbioevents.rds"))) {
   
   all_microbioevents_raw <- run_query(sql_microbio)
   saveRDS(all_microbioevents_raw, here::here("Data/all_microbioevents_raw.rds"))
+  
   all_microbioevents_raw <- readRDS(here::here("Data/all_microbioevents_raw.rds")) %>% 
     setDT()
   
@@ -257,7 +256,6 @@ if (!file.exists(here::here("Data/all_microbioevents.rds"))) {
   ## department workup) through to discharge. The same window is reused to repair
   ## missing hadm_id in the labevents section below.
   admission_window_microbio <- base_cohort %>%
-    copy() %>%
     .[, .(subject_id,
           hadm_id,
           window_start = admittime - lubridate::hours(24),
@@ -266,13 +264,11 @@ if (!file.exists(here::here("Data/all_microbioevents.rds"))) {
   
   ## Specimens that already carry a cohort hadm_id keep it unchanged.
   microbio_already_linked <- all_microbioevents_raw %>% 
-    copy() %>% 
     .[!is.na(hadm_id)] %>% 
     .[hadm_id %in% base_cohort$hadm_id]
   
   ## Specimens with a missing hadm_id are matched to an admission by time.
   microbio_repaired <- all_microbioevents_raw %>% 
-    copy() %>% 
     .[is.na(hadm_id)] %>% 
     .[, hadm_id := NULL] %>% 
     merge(.,
@@ -387,7 +383,6 @@ if (!file.exists(here::here("Data/all_labevents.rds"))) {
     setDT()
   
   admission_window_lab <- base_cohort %>%
-    copy() %>%
     .[, .(subject_id,
           hadm_id,
           window_start = admittime - lubridate::hours(24),
@@ -396,13 +391,11 @@ if (!file.exists(here::here("Data/all_labevents.rds"))) {
   
   ## Lab rows that already carry a cohort hadm_id keep it unchanged.
   labevents_already_linked <- all_labevents_raw %>% 
-    copy() %>% 
     .[!is.na(hadm_id)] %>% 
     .[hadm_id %in% base_cohort$hadm_id]
   
   ## Rows with a missing hadm_id are matched to an admission by time.
   labevents_repaired <- all_labevents_raw %>%
-    copy() %>%
     .[is.na(hadm_id)] %>%
     .[, hadm_id := NULL] %>%
     merge(.,
@@ -453,7 +446,6 @@ all_labevents[, uniqueN(hadm_id)]
 
 ## Restrict to ICU window
 all_labevents_icu <- all_labevents %>% 
-  copy() %>% 
   merge(.,
         stay_lookup,
         by = c("subject_id",
@@ -503,7 +495,6 @@ all_prescriptions[, uniqueN(subject_id)]
 all_prescriptions[, uniqueN(hadm_id)]
 
 all_prescriptions_icu <- all_prescriptions %>% 
-  copy() %>% 
   merge(.,
         stay_lookup,
         by = c("subject_id",
@@ -565,7 +556,6 @@ if (!file.exists(here::here("Data/all_antimicrobialevents.rds"))) {
   antimicrobial_exclude <- "desensiti|graded challenge|\\bchallenge\\b|test dose"
   
   antimicrobial_rx <- all_prescriptions %>% 
-    copy() %>% 
     .[grepl(antimicrobial_include, 
             drug, 
             ignore.case = TRUE) &
@@ -628,7 +618,6 @@ if (!file.exists(here::here("Data/all_emar.rds"))) {
   ## if charttime falls from `microbio_link_lead_h` hours before admission through
   ## discharge. Reuses the constant defined in the microbiology section.
   admission_window_emar <- base_cohort %>%
-    copy() %>%
     .[, .(subject_id,
           hadm_id,
           window_start = admittime - lubridate::hours(24),
@@ -637,13 +626,11 @@ if (!file.exists(here::here("Data/all_emar.rds"))) {
   
   ## Rows that already carry a cohort hadm_id keep it unchanged.
   emar_already_linked <- all_emar_raw %>%
-    copy() %>%
     .[!is.na(hadm_id)] %>%
     .[hadm_id %in% base_cohort$hadm_id]
   
   ## Rows with a missing hadm_id are matched to an admission by charttime.
   emar_repaired <- all_emar_raw %>%
-    copy() %>%
     .[is.na(hadm_id)] %>%
     .[, hadm_id := NULL] %>%
     merge(.,
@@ -733,7 +720,6 @@ corticosteroid_emar_details[, uniqueN(subject_id)]
 corticosteroid_emar_details[, uniqueN(hadm_id)]
 
 corticosteroid_emar_icu <- corticosteroid_emar_details %>% 
-  copy() %>% 
   merge(.,
         stay_lookup,
         by = c("subject_id",
@@ -821,6 +807,7 @@ chartevents_patterns <- c("height",
                           "O2 saturation",
                           
                           "Tidal Volume (set)",
+                          "tidal volume",
                           
                           "Hourly Patient Fluid Removal",
                           "Hemodialysis Output",
@@ -841,7 +828,6 @@ chartevents_patterns <- c("height",
                           
                           
                           # "gcs",
-                         
                           "peep",
                           "plateau pressure")
 
@@ -900,19 +886,19 @@ all_chartevents[, uniqueN(stay_id)]
 #### Height --------------------------------------------------------------------
 ## Pull patient admission height from chart data
 height_itemids <- d_items %>% 
-  copy() %>% 
   .[grepl("height",
           label,
           ignore.case = TRUE)]
 
 height_events <- all_chartevents %>% 
-  copy() %>% 
   .[itemid %in% height_itemids$itemid] %>% 
   merge(.,
         height_itemids[, .(itemid,
                            label,
                            unitname)],
-        by = "itemid") %>% 
+        by = "itemid",
+        all.x = TRUE,
+        all.y = FALSE) %>% 
   ## select latest measurement per patient
   ## if more than one measurement is charted
   .[order(subject_id,
@@ -922,7 +908,8 @@ height_events <- all_chartevents %>%
     .SD[1],
      by = .(subject_id,
             hadm_id,
-            stay_id)]
+            stay_id,
+            itemid)]
 
 ## Make sure there is only one measurement per patient and unit 
 stopifnot(nrow(height_events[, .N, by = .(stay_id, itemid)] %>% .[N > 1]) == 0)
@@ -966,7 +953,8 @@ quantile(patient_height$`Height (in)`,
          na.rm = TRUE)
 
 ## Remove obvious outliers
-patient_height <- patient_height %>% 
+patient_height <-
+  patient_height %>% 
   copy() %>% 
   .[, height_diff := 
       abs(`Height (in)` * 2.54 - `Height (cm)`)] %>% 
@@ -1172,7 +1160,6 @@ all_ed_diagnosisevents <- readRDS(here::here("Data/all_ed_diagnosisevents.rds"))
 
 ## ICD codes sepsis
 sepsis_icd <- all_ed_diagnosisevents %>% 
-  copy() %>% 
   .[icd_title %in% c("septicemia nos", ## older term for sepsis (bloodstream infection)
                      "sepsis, unspecified organism",
                      "sepsis",
@@ -1188,7 +1175,6 @@ sepsis_icd <- all_ed_diagnosisevents %>%
 
 ## ICD codes septic shock
 septic_shock_icd <- all_ed_diagnosisevents %>% 
-  copy() %>% 
   .[icd_title %in% c("septic shock",
                      "severe sepsis with septic shock",
                      "postprocedural septic shock, initial encounter"),
@@ -1295,7 +1281,6 @@ sepsis_onset <- base_cohort %>%
 stopifnot(sepsis_onset[, .N, by = stay_id] %>% .[N > 1, .N] == 0)
 ## Item IDs corresponding to blood lactate measurement
 lactate_itemids <- lab_itemids %>% 
-  copy() %>% 
   .[label == "Lactate" &
       grepl("blood",
             fluid,
@@ -1303,7 +1288,6 @@ lactate_itemids <- lab_itemids %>%
 
 ## All Lactate Events
 all_lactateevents <- all_labevents %>%
-  copy() %>% 
   ## Blood lactate item IDs
   .[itemid %in% lactate_itemids$itemid,
     .(subject_id,
@@ -1336,7 +1320,6 @@ quantile(all_lactateevents$valuenum,
 
 ## Remove obvious outliers
 all_lactateevents <- all_lactateevents %>% 
-  copy() %>% 
   .[!is.na(charttime) & 
       valueuom == "mmol/L" &
       valuenum >= 0 &
@@ -1356,7 +1339,6 @@ vasopressors_patterns <- c("Norepinephrine",
 
 ## Determine Vasopressor item IDs
 vasopressor_itemids <- d_items %>% 
-  copy() %>% 
   .[grepl(paste(vasopressors_patterns,
                 collapse = "|"),
           label,
@@ -1376,7 +1358,6 @@ vasopressor_itemids <- d_items %>%
 
 ## Vasopressor administration
 all_vasopressorevents <- all_inputevents %>% 
-  copy() %>% 
   ## Vasopressor item IDs
   .[itemid %in% vasopressor_itemids$itemid] %>% 
   ## add vasopressor labels
@@ -1396,7 +1377,6 @@ all_vasopressorevents <- all_inputevents %>%
 
 ## Lactate measurements associated with septic shock criteria
 lactate_events_shock <- all_lactateevents %>% 
-  copy() %>% 
   .[valuenum > 2] %>% 
   merge(.,
         sepsis_onset,
@@ -1459,7 +1439,6 @@ stopifnot(vasopressor_events_shock[is.na(vaso_end) | vaso_end <= vaso_start, .N]
 
 ## Candidates for septic shock
 septic_shock_candidates <- vasopressor_events_shock %>% 
-  copy() %>% 
   merge(.,
         lactate_events_shock,
         by = c("subject_id",
@@ -1472,7 +1451,6 @@ septic_shock_candidates <- vasopressor_events_shock %>%
 
 ## Define septic shock proxy
 first_septic_shock <- septic_shock_candidates %>% 
-  copy() %>% 
   ## Lactate measured up to 6 h before vasopressor initiation
   ## or during the qualifying vasopressor episode,
   ## with both criteria completed within 24 h of sepsis onset
@@ -1510,7 +1488,6 @@ first_septic_shock <- septic_shock_candidates %>%
 
 ## Add septic shock and hypoperfusion variables to ssc variable data
 sepsis_base_cohort_data <- base_cohort %>%
-  copy() %>%
   merge(.,
         first_septic_shock,
         by = c("subject_id",
@@ -1591,7 +1568,6 @@ sepsis_base_cohort_data <- base_cohort %>%
 
 ## Lactate > 2 mmol/L within the sepsis episode
 lactate_hypoperfusion <- all_lactateevents %>%
-  copy() %>%
   .[valuenum > 2] %>%
   merge(.,
         sepsis_onset,
@@ -1684,7 +1660,6 @@ lactate_hypoperfusion <- all_lactateevents %>%
 
 ## Septic shock onset as a qualifying hypoperfusion event
 shock_hypoperfusion <- first_septic_shock %>%
-  copy() %>%
   .[, .(subject_id,
         hadm_id,
         stay_id,
@@ -1695,7 +1670,6 @@ shock_hypoperfusion <- first_septic_shock %>%
 ## combined with full outer joins so a stay is kept if it meets any one of them,
 ## then the onset is the earliest of the (possibly missing) event times.
 hypoperfusion_onset <- lactate_hypoperfusion %>%
-  copy() %>%
   # merge(.,
   #       hypotension_hypoperfusion,
   #       by = c("subject_id",
@@ -1723,7 +1697,6 @@ hypoperfusion_onset <- lactate_hypoperfusion %>%
 
 ## Add septic shock and hypoperfusion variables to ssc variable data
 sepsis_base_cohort_data <- sepsis_base_cohort_data %>%
-  copy() %>%
   merge(.,
         hypoperfusion_onset,
         by = c("subject_id",
@@ -1782,7 +1755,6 @@ sepsis_base_cohort_data[hypoperfusion_proxy == TRUE,
 
 ## Blood-pressure item IDs (mean + systolic; arterial, non-invasive, manual)
 bp_onset_itemids <- chart_itemids %>%
-  copy() %>%
   .[label %in% c("Arterial Blood Pressure mean",
                  "Non Invasive Blood Pressure mean",
                  "Arterial Blood Pressure systolic",
@@ -1792,7 +1764,6 @@ bp_onset_itemids <- chart_itemids %>%
 
 ## stay_id -> subject_id/hadm_id map (robust to chartevents column set)
 stay_map <- sepsis_base_cohort_data %>%
-  copy() %>%
   .[, .(stay_id,
         subject_id,
         hadm_id)] %>%
@@ -1800,7 +1771,6 @@ stay_map <- sepsis_base_cohort_data %>%
 
 ## ED systolic BP (pre-ICU)
 ed_bp <- all_edvitalsign %>%
-  copy() %>%
   merge(all_edstays[, .(stay_id,
                         hadm_id)],
         by = "stay_id",
@@ -1813,7 +1783,6 @@ ed_bp <- all_edvitalsign %>%
 
 ## ICU MAP + systolic BP (chartevents)
 icu_bp <- all_chartevents %>%
-  copy() %>%
   .[itemid %in% bp_onset_itemids$itemid &
       !is.na(valuenum)] %>%
   .[, .(stay_id,
@@ -1861,7 +1830,6 @@ low_bp <- rbind(ed_bp,
 ## (the descriptive "deterioration leads recognition" finding lives here);
 ## physio_shock_onset below is the clamped, classified onset for analysis.
 first_hypo <- low_bp %>%
-  copy() %>%
   .[, .(hypotension_onset = min(charttime, na.rm = TRUE)),
     by = .(subject_id,
            hadm_id,
@@ -1869,7 +1837,6 @@ first_hypo <- low_bp %>%
 
 ## add physio_shock_onset + source flag to the cohort
 sepsis_base_cohort_data <- sepsis_base_cohort_data %>%
-  copy() %>%
   merge(first_hypo,
         by = c("subject_id",
                "hadm_id",
@@ -1908,7 +1875,6 @@ sepsis_base_cohort_data <- sepsis_base_cohort_data %>%
 ## patients (MIMIC-IV-ED has no fluid volume), so its observability is stricter
 ## than this general flag -- refine per-recommendation where it matters.
 ed_linked_hadm <- all_edstays %>% 
-  copy() %>% 
   .[hadm_id %in% sepsis_base_cohort_data$hadm_id,
                               unique(hadm_id)]
 
@@ -1963,6 +1929,7 @@ sepsis_base_cohort_data[septic_shock_proxy == TRUE,
 sepsis_base_cohort_data[, .(cohort = .N,
                             well_observed = sum(well_observed),
                             well_observed_strict = sum(well_observed_strict))]
+
 sepsis_base_cohort_data[septic_shock_proxy == TRUE,
                         .(shock = .N,
                           well_observed = sum(well_observed),
@@ -2024,7 +1991,6 @@ kdigo_stages <- readRDS(here::here("Data/kdigo_stages.rds")) %>%
 
 ## max AKI stage before vs after onset, per stay
 aki_stage_by_stay <- kdigo_stages %>%
-  copy() %>%
   .[!is.na(aki_stage_creat)] %>%
   merge(.,
         sepsis_base_cohort_data[, .(subject_id,
@@ -2091,8 +2057,6 @@ sepsis_base_cohort_data[, .(n = .N,
 
 
 
-
-
 ## 12. BASELINE COVARIATES (FOR CAUSAL ANALYSIS) -------------------------------
 ## Confounders must be baseline (at/before onset)
 ## Comorbidities are admission-level; SAPS-II is first-24h; 
@@ -2145,7 +2109,6 @@ baseline_lab_patterns <- c("Creatinine",
 
 ## Item IDs for baseline labs
 baseline_lab_itemids <- lab_itemids %>% 
-  copy() %>% 
   .[grepl(paste(baseline_lab_patterns,
                 collapse = "|"),
           label,
@@ -2199,7 +2162,6 @@ baseline_lab_itemids <- lab_itemids %>%
 
 ## Baseline lab events
 baseline_lab_events <- all_labevents %>% 
-  copy() %>% 
   ## only patients in sepsis base cohort
   .[subject_id %in% sepsis_base_cohort_data$subject_id] %>% 
   ## baseline labs
@@ -2237,7 +2199,6 @@ baseline_lab_events <- all_labevents %>%
 
 ## one column per lab
 baseline_labs_wide <- baseline_lab_events %>% 
-  copy() %>% 
   dcast(subject_id +
           hadm_id + 
           stay_id ~ lab,
@@ -2255,7 +2216,6 @@ baseline_labs_wide <- baseline_lab_events %>%
 
 ## assemble baseline covariate frame (one row per cohort stay)
 baseline_covariates <- sepsis_base_cohort_data %>%
-  copy() %>%
   .[, .(subject_id, 
         hadm_id, 
         stay_id,

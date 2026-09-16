@@ -18,6 +18,14 @@ library(mlr3)
 library(mlr3learners)
 library(ranger)
 library(xgboost)
+library(dagitty)
+
+## Source functions
+source(
+  list.files(
+    here::here("Code", "Functions"),
+    pattern = "\\.R$",
+    full.names = TRUE))
 
 ## Color scheme for plots
 pastel.blue   <- "lightblue"
