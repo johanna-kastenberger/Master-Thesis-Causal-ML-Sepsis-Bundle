@@ -1019,9 +1019,6 @@ ed_physio_signals[!is.na(ed_tachypnea_time),
 
 
 
-
-
-
 ### Physiology-based Septic Shock Onset ----------------------------------------
 ## Re-times onset from vasopressor ADMINISTRATION (ICU-lagged treatment) to the
 ## vasopressor REQUIREMENT (physiology): sustained hypotension + lactate > 2.
@@ -1132,18 +1129,20 @@ physio_onset <- sepsis_base_cohort_data[septic_shock_proxy == TRUE,
                                     septic_shock_onset_time)]
 
 ## comparison
-physio_onset[, .(
-  n = .N,
-  with_sustained_hypo = sum(!is.na(hypo_onset)),
-  median_shift_vs_current_h = round(median(as.numeric(
-    difftime(physio_shock_onset, septic_shock_onset_time, units="hours")), na.rm=TRUE), 1),
-  earlier_than_current_pct = round(mean(physio_shock_onset < septic_shock_onset_time, na.rm=TRUE), 3),
-  physio_before_sepsis_pct  = round(mean(physio_shock_onset < suspected_infection_time, na.rm=TRUE), 3))]
+physio_onset[, .(n = .N,
+                 with_sustained_hypo = sum(!is.na(hypo_onset)),
+                 median_shift_vs_current_h = round(median(as.numeric(difftime(physio_shock_onset, 
+                                                                              septic_shock_onset_time, 
+                                                                              units = "hours")), 
+                                                          na.rm=TRUE), 
+                                                   1),
+                 earlier_than_current_pct = round(mean(physio_shock_onset < septic_shock_onset_time, 
+                                                       na.rm=TRUE), 
+                                                  3),
+                 physio_before_sepsis_pct  = round(mean(physio_shock_onset < suspected_infection_time, 
+                                                        na.rm=TRUE), 
+                                                   3))]
 
-
-## xx 4 RECOMMENDATION ---------------------------------------------------------
-rec4_label <- ssc_recommendations %>% 
-  .[rec_num == 4, rec_label]
 
 ## 7 RECOMMENDATION ------------------------------------------------------------
 rec7_label <- ssc_recommendations %>% 
@@ -1216,8 +1215,8 @@ first_sepsis_blood_culture <- all_microbioevents %>%
            hadm_id,
            stay_id)]
 
-## Adherent if the EARLIEST qualifying blood culture was drawn at or before the
-## first systemic antimicrobial. This is equivalent to testing whether ANY
+## Adherent if the earliest qualifying blood culture was drawn at or before the
+## first systemic antimicrobial. This is equivalent to testing whether any
 ## qualifying culture preceded it: if the earliest does not, none can.
 ## antimicrobial_time is never NA (prescriptions value, or antibiotic_time
 ## fallback), so a NA blood_culture_time means no qualifying culture -> FALSE,
@@ -1233,7 +1232,8 @@ rec_7 <- first_sepsis_antimicrobial %>%
   .[, blood_culture_collected := !is.na(blood_culture_time)] %>%
   .[, rec_7_culture_before_antimicrobial := fcase(
   
-    blood_culture_time <= antimicrobial_time,
+    !is.na(blood_culture_collected) &
+      blood_culture_time <= antimicrobial_time,
     TRUE,
     
     blood_culture_time > antimicrobial_time |
@@ -1263,6 +1263,16 @@ lactate_itemid <- lab_itemids %>%
             fluid,
             ignore.case = TRUE)]
 
+## Determine ED admission time to use as lower 
+## bound for lactate measurement time stamp
+ed_first_intime <- all_edstays %>% 
+  .[!is.na(hadm_id)] %>% 
+  ## earliest ED arrival per hospital admission
+  .[, .(ed_intime = min(ed_intime,
+                        na.rm = TRUE)),
+    by = .(subject_id,
+           hadm_id)]
+
 ## Lactate Events
 ## Consider lactate measurements during the entire hospitalization, not just
 ## during the ICU stay to avoid excluding relevant measurements
@@ -1283,15 +1293,34 @@ first_lactate <- lactate_events %>%
         sepsis_base_cohort_data[, .(subject_id,
                                     hadm_id,
                                     stay_id,
-                                    suspected_infection_time)],
+                                    suspected_infection_time,
+                                    admittime,
+                                    icu_intime)],
         by = c("subject_id",
                "hadm_id"),
         all = FALSE) %>% 
+  merge(.,
+        ed_first_intime,
+        by = c("subject_id",
+               "hadm_id"),
+        all.x = TRUE,
+        all.y = FALSE) %>% 
+  .[, lactate_lower_bound := pmin(suspected_infection_time - 
+                                    hours(1),                     
+                                  pmax(fcoalesce(ed_intime,
+                                                 admittime, 
+                                                 icu_intime),       
+                                       suspected_infection_time - 
+                                         hours(24),               
+                                       na.rm = TRUE),
+                                  na.rm = TRUE)] %>% 
   ## meant to guide resuscitation and subsequent therapeutic interventions
   ## therefore guideline is restricted to initial fluid resuscitation window
   ## so lactate measurement can guide decision making
-  .[lactate_time >= suspected_infection_time - hours(1) &
-      lactate_time <= suspected_infection_time + hours(24)] %>%
+.[lactate_time >= lactate_lower_bound &
+    lactate_time <= suspected_infection_time + hours(24)] %>% 
+  # .[lactate_time >= suspected_infection_time - hours(1) &
+  #     lactate_time <= suspected_infection_time + hours(24)] %>%
   .[order(subject_id,
           hadm_id,
           stay_id,

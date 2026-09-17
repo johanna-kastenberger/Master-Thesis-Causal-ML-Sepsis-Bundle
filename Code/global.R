@@ -19,6 +19,7 @@ library(mlr3learners)
 library(ranger)
 library(xgboost)
 library(dagitty)
+library(EValue)
 
 ## Source functions
 source(
