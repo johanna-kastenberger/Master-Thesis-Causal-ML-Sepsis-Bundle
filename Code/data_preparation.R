@@ -1,5 +1,15 @@
 source(here::here("Code/global.R"))
 
+## step count function for cohort flow chart
+step <- function(dt,
+                 lbl) {
+  
+  data.table(step = lbl,
+             patients = uniqueN(dt$subject_id),
+             hospital_admissions = uniqueN(dt$hadm_id),
+             stays = uniqueN(dt$stay_id))
+  }
+
 ## 1. SET UP BIG QUERY CONNECTION ----------------------------------------------
 project_id <- "master-thesis-492309"
 
@@ -38,7 +48,6 @@ patient_data[, uniqueN(subject_id)]
 if (!file.exists(here::here("Data/icu_data.rds"))) {
 sql_icu <- glue::glue(
   "SELECT
-  
   subject_id,
   hadm_id,
   stay_id,
@@ -53,6 +62,10 @@ saveRDS(icu_data, here::here("Data/icu_data.rds"))
 
 icu_data <- readRDS(here::here("Data/icu_data.rds")) %>% 
   setDT()
+
+## Base extraction - number of ICU patients in MIMIC-IV data
+s0 <- step(dt = icu_data,
+           lbl = "Patients in MIMIC-IV ICU data")
 
 ## Check number of subject IDs
 icu_data[, uniqueN(subject_id)]
@@ -164,6 +177,10 @@ base_cohort <- merge(
         0)]
 
 stopifnot(base_cohort[, uniqueN(stay_id)] == length(stays_sepsis3))
+
+## Base cohort of ICU patients with sepsis3 == TRUE
+s1 <- step(dt = base_cohort,
+           lbl = "Patients with sepsis according \nto Sepsis-3 criteria")
 
 ## Unique set of Subject IDs for adults with sepsis
 subject_ids_sql_list <- paste(unique(base_cohort$subject_id), collapse = ",")
@@ -674,11 +691,13 @@ if (!file.exists(here::here("Data/all_emar.rds"))) {
   saveRDS(all_emar, here::here("Data/all_emar.rds"))
 }
 
+all_emar <- readRDS(here::here("Data/all_emar.rds")) %>% 
+  setDT()
+
 
 if(!file.exists(here::here("Data/corticosteroid_emar_details.rds"))) {
   ## Corticosteroids patterns
   corticosteroids_patterns <- paste(c("hydrocortisone",
-                                      "hydrocostrisone na succ.",
                                       "methylprednisolone",
                                       "dexamethasone",
                                       "prednisolone",
@@ -2035,7 +2054,7 @@ sepsis_base_cohort_data <-
   .[, aki_severe := as.integer(aki_post_stage >= 2)] %>%
   .[, aki_new := as.integer(aki_post_stage > fcoalesce(aki_baseline_stage, 0L))]
 
-saveRDS(sepsis_base_cohort_data, here::here("Data/sepsis_base_cohort_data.rds"))
+# saveRDS(sepsis_base_cohort_data, here::here("Data/sepsis_base_cohort_data.rds"))
 
 ## outcome rates
 sepsis_base_cohort_data[, .(n = .N,
@@ -2271,4 +2290,732 @@ baseline_covariates[, lapply(.SD, function(x) round(mean(!is.na(x)), 3)),
                                 "albumin", 
                                 "inr")]
 
+
+## 13. FILTER SEPSIS COHORT ----------------------------------------------------
+## Define sepsis patient cohort
+sepsis_base_cohort_data <- sepsis_base_cohort_data %>% 
+  ## patients with sepsis
+  .[sepsis3 == TRUE] %>% 
+  .[, time_to_sepsis :=
+      lubridate::time_length(
+        suspected_infection_time -
+          icu_intime,
+        "hours")] %>% 
+  ## Keep only first ICU stay per patient
+  .[order(subject_id,
+          hadm_id,
+          stay_id,
+          icu_intime),
+    .SD[1],
+    by = .(subject_id)]
+
+## Only include first ICU stay per patient
+s2 <- step(dt = sepsis_base_cohort_data,
+           lbl = "First ICU stay per patient")
+
+
+sepsis_base_cohort_data <- sepsis_base_cohort_data %>% 
+  copy() %>% 
+  ## sepsis diagnosis within +/-24h to ICU admission
+  .[suspected_infection_time >= icu_intime - hours(24) &
+      suspected_infection_time <= icu_intime + hours(24)]
+
+## Sepsis onset witin +/- 24h of ICU admission
+s3 <- step(dt = sepsis_base_cohort_data,
+           lbl = "Sepsis onset within +/- 24h of ICU admission")
+
+
+sepsis_base_cohort_data <- sepsis_base_cohort_data %>% 
+  copy() %>% 
+  ## ICU length of stay >= 24h
+  .[time_length(icu_outtime -
+                  icu_intime,
+                unit = "hours") >= 24] %>% 
+  ## Initial IV fluid resuscitation (crystalloids, colloids, other IV fluids)
+  ## should start immediately after sepsis onset, but to account for delayed
+  ## documentation, up to 1 hour before recorded sepsis onset is considered.
+  ## Initial resuscitation is restricted to the first three hours are sepsis
+  ## onset, as per the SSC guidelines and many other sources
+  .[, fluid_resuscitation_start := suspected_infection_time -
+      hours(1)] %>%
+  .[, fluid_resuscitation_end := suspected_infection_time +
+      hours(3)]
+
+
+## ICU LOS at least 24h
+s4 <- step(dt = sepsis_base_cohort_data,
+           lbl = "ICU length of stay >= 24h")
+
+
+
+## 14. PATIENT WEIGHT ----------------------------------------------------------
+### Admission Weight Data Cleaning ---------------------------------------------
+## Item IDs for admission weight (kg)
+admission_weight_kg_itemid <- d_items %>%
+  .[label == "Admission Weight (Kg)"]
+
+## Admission weight (kg)
+admission_weight_kgs <- all_chartevents %>%
+  ## only stays associated with patients in the sepsis base cohort
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  ## only entries associated to daily weight (kgs)
+  .[itemid == admission_weight_kg_itemid$itemid &
+      !is.na(valuenum)] %>% 
+  .[, .(stay_id,
+        admission_weight_kg_time = charttime,
+        admission_weight_kg = valuenum)] %>%
+  unique() %>% 
+  ## remove obvious outliers
+  .[admission_weight_kg >= 30 &
+      admission_weight_kg <= 300]
+
+## Check that only one value for patient is included
+stopifnot(nrow(admission_weight_kgs[, .N, by = stay_id] %>% .[N > 1]) == 0)
+
+## Item IDs for admission weight (lbs)
+admission_weight_lb_itemid <- d_items %>% 
+  .[label == "Admission Weight (lbs.)"]
+
+## Admission weight (lb)
+admission_weight_lbs <- all_chartevents %>% 
+  ## only stays associated with patients in the sepsis base cohort
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  ## only entries associated to daily weight (lbs)
+  .[itemid == admission_weight_lb_itemid$itemid &
+      !is.na(valuenum)] %>% 
+  .[, .(stay_id,
+        admission_weight_lb_time = charttime,
+        admission_weight_lb = valuenum)] %>%
+  unique() %>% 
+  ## remove obvious outliers
+  .[admission_weight_lb >= 30 * 2.20462 &
+      admission_weight_lb <= 300 * 2.20462]
+
+## Validate weight entries by comparing admission 
+## weight (kg) and admission weight (lb)
+admission_weight_merged <- admission_weight_lbs %>% 
+  merge(.,
+        admission_weight_kgs,
+        by = "stay_id",
+        all = TRUE) %>% 
+  ## calculate the difference between admission weight (kg)
+  ## and admissinon weight (lb) in lbs (1kg = 2.20462 lbs)
+  .[, `:=` (
+    weight_diff_lb = abs((admission_weight_kg * 2.20462) - 
+                           admission_weight_lb),
+    weight_time_diff_hr = abs(lubridate::time_length(
+      admission_weight_kg_time -
+        admission_weight_lb_time,
+      "hours")))] 
+
+## select the entry of admission weight (lb) closest to 
+## admission weight (kg) for each stay_id
+## patients with both admission weight(kg) 
+## and admission weight(lb) entries
+admission_weight_both <- admission_weight_merged %>% 
+  .[!is.na(admission_weight_kg) &
+      !is.na(admission_weight_lb)] %>% 
+  .[order(stay_id,
+          weight_diff_lb,
+          weight_time_diff_hr),
+    .SD[1],
+    by = stay_id] %>% 
+  .[, weight_valid := fcase(
+    !is.na(admission_weight_kg) &
+      !is.na(admission_weight_lb) &
+      weight_diff_lb <= 2,
+    "valid: kg/lb agreement within 2lb",
+    
+    !is.na(admission_weight_kg) &
+      !is.na(admission_weight_lb) &
+      weight_diff_lb > 2,
+    "kg/lb discrepancy >2 lb"
+  )] %>% 
+  .[, admission_weight_final_kg := fcase(
+    weight_valid == "valid: kg/lb agreement within 2lb",
+    admission_weight_kg,
+    
+    default = NA_real_)] %>% 
+  .[, .(stay_id,
+        admission_weight_lb_time,
+        admission_weight_lb,
+        admission_weight_kg_time,
+        admission_weight_kg,
+        weight_valid,
+        admission_weight_final_kg,
+        admission_weight_time = admission_weight_kg_time)]
+
+## Check that there is only one row per stay_id
+stopifnot(nrow(admission_weight_both[, .N, by = stay_id] %>% .[N > 1]) == 0)
+
+## Patients with only admission weight (kg)
+admission_weight_only_kg <- admission_weight_merged %>% 
+  .[!is.na(admission_weight_kg) &
+      is.na(admission_weight_lb)] %>% 
+  .[, `:=` (
+    weight_valid = "only one admission weight (kg) measurement available",
+    admission_weight_final_kg = admission_weight_kg
+  )] %>% 
+  .[, .(stay_id,
+        admission_weight_lb_time,
+        admission_weight_lb,
+        admission_weight_kg_time,
+        admission_weight_kg,
+        weight_valid,
+        admission_weight_final_kg,
+        admission_weight_time = admission_weight_kg_time)]
+
+## Check that there is only one row per stay_id
+stopifnot(nrow(admission_weight_only_kg[, .N, by = stay_id] %>% .[N > 1]) == 0)
+
+## admission weight(lb) entries
+admission_weight_only_lb <- admission_weight_merged %>% 
+  .[!is.na(admission_weight_lb) &
+      is.na(admission_weight_kg)] %>%
+  .[order(stay_id,
+          admission_weight_lb_time)] %>% 
+  .[, n_weight := .N, 
+    by = stay_id] %>% 
+  .[, `:=` (diff_to_prev = 
+              abs(admission_weight_lb -
+                    shift(admission_weight_lb,
+                          type = "lag")),
+            prev_weight_lb = 
+              shift(admission_weight_lb,
+                    type = "lag"),
+            time_to_prev =
+              abs(lubridate::time_length(admission_weight_lb_time -
+                                           shift(admission_weight_lb_time,
+                                                 type = "lag"),
+                                         "hours"))),
+    by = stay_id] %>% 
+  .[, diff_to_prev := nafill(diff_to_prev,
+                             type = "nocb"),
+    by = stay_id] %>%
+  .[, time_to_prev := nafill(time_to_prev,
+                             type = "nocb"),
+    by = stay_id] %>%
+  # .[(!is.na(diff_to_prev) &
+  #     !is.na(time_to_prev)) |
+  #     n_weight == 1] %>%
+  # add suspected sepsis onset time
+  merge(.,
+        sepsis_base_cohort_data[, .(subject_id,
+                                    hadm_id,
+                                    stay_id,
+                                    suspected_infection_time)] %>% 
+          unique(),
+        by = "stay_id",
+        all.x = TRUE,
+        all.y = FALSE) %>% 
+  .[, time_to_sepsis := abs(lubridate::time_length(
+    suspected_infection_time -
+      admission_weight_lb_time,
+    "hours"
+  ))] %>% 
+  .[, weight_valid := fcase(
+    
+    n_weight == 1,
+    "only one admission weight (lb) measurement available",
+    
+    !is.na(diff_to_prev) &
+      diff_to_prev == 0,
+    "valid: weight (lb) equal to previous weight measurement",
+    
+    !is.na(diff_to_prev) &
+      diff_to_prev <= 5,
+    "valid: <=5lb difference between measurements",
+    
+    !is.na(diff_to_prev) &
+      diff_to_prev > 5 &
+      time_to_prev <= 1,
+    "not valid: >5 lb difference within 1h",
+    
+    !is.na(diff_to_prev) &
+      diff_to_prev > 5 &
+      time_to_prev > 1,
+    "uncertain: >5lb difference between measurements"
+  )] %>% 
+  .[, weight_valid := factor(weight_valid,
+                             levels = c("valid: weight (lb) equal to previous weight measurement",
+                                        "valid: <=5lb difference between measurements",
+                                        "uncertain: >5lb difference between measurements",
+                                        "only one admission weight (lb) measurement available",
+                                        "not valid: >5 lb difference within 1h"
+                             ))] %>% 
+  .[order(subject_id,
+          hadm_id,
+          stay_id,
+          weight_valid,
+          time_to_sepsis),
+    .SD[1],
+    by = .(subject_id,
+           hadm_id,
+           stay_id)] %>% 
+  .[, admission_weight_final_kg := fcase(
+    
+    weight_valid %in% c("valid: weight (lb) equal to previous weight measurement",
+                        "valid: <=5lb difference between measurements",
+                        "uncertain: >5lb difference between measurements",
+                        "only one admission weight (lb) measurement available"),
+    admission_weight_lb / 2.20462
+  )] %>% 
+  .[, .(stay_id,
+        admission_weight_lb_time,
+        admission_weight_lb,
+        admission_weight_kg_time,
+        admission_weight_kg,
+        weight_valid,
+        admission_weight_final_kg,
+        admission_weight_time = admission_weight_lb_time)]
+
+## Check that there is only one row per stay ID
+stopifnot(nrow(admission_weight_only_lb[, .N, by = stay_id] %>% .[N > 1]) == 0)
+
+## Combine into one validated admission weight dataset
+admission_weight_validated <- 
+  rbindlist(list(
+    admission_weight_both,
+    admission_weight_only_kg,
+    admission_weight_only_lb
+  )) %>% 
+  ## add subject and hospital admission IDs
+  merge(.,
+        sepsis_base_cohort_data[, .(subject_id,
+                                    hadm_id,
+                                    stay_id)] %>% 
+          unique(),
+        by = "stay_id",
+        all.x = TRUE,
+        all.y = FALSE)
+
+## Check that there is only one row per stay ID
+stopifnot(nrow(admission_weight_validated[, .N, by = stay_id] %>% .[N > 1]) == 0)
+
+# admission_weight_validated %>% 
+#   copy() %>% 
+#   ggplot(aes(
+#     x = weight_valid,
+#     fill = weight_valid
+#   )) +
+#   geom_bar() +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 90))
+
+### Daily Weight Data Cleaning --------------------------------------------------
+### Item ID for daily weight measurements
+daily_weight_itemid <- chart_itemids %>% 
+  .[grepl("Daily Weight",
+          label,
+          ignore.case = TRUE)]
+
+## Closest daily weight to sepsis onset per stay ID
+daily_weight_candidates <- all_chartevents %>%
+  ## only stays associated with patients in the sepsis base cohort
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  ## only entries associated to daily weight
+  .[itemid %in% daily_weight_itemid$itemid] %>%
+  ## add item id unitname
+  merge(.,
+        daily_weight_itemid[, .(itemid,
+                                unitname)],
+        by = "itemid") %>% 
+  .[, .(stay_id,
+        daily_weight_time = charttime,
+        daily_weight = valuenum,
+        weight_unit = unitname)] %>%
+  unique() %>% 
+  ## remove obvious outliers
+  .[daily_weight >= 30 &
+      daily_weight <= 300] %>%
+  .[order(stay_id,
+          daily_weight_time)] %>% 
+  .[, n_weight := .N,
+    by = stay_id]
+
+
+## Singular entry for daily weight per stay ID
+## contains only daily weight entries which have been validated
+## and are closer to sepsis onset than admission weight and 
+## should therefore be used for fluid amount calculation
+daily_weight_single <- daily_weight_candidates %>% 
+  .[n_weight == 1] %>% 
+  merge(.,
+        admission_weight_validated[, .(stay_id,
+                                       weight_valid,
+                                       admission_weight_final_kg,
+                                       admission_weight_time)],
+        by = "stay_id",
+        all.x = TRUE,
+        all.y = FALSE) %>% 
+  ## Calculate difference to validated admission weight
+  .[, diff_to_admission_weight := 
+      abs(daily_weight -
+            admission_weight_final_kg)] %>% 
+  ## Time difference to validated admission weight
+  .[, diff_to_admission_time := 
+      abs(lubridate::time_length(
+        daily_weight_time -
+          admission_weight_time,
+        "hours"))] %>% 
+  merge(.,
+        sepsis_base_cohort_data[, .(subject_id,
+                                    hadm_id,
+                                    stay_id,
+                                    suspected_infection_time)] %>% 
+          unique(),
+        by = "stay_id",
+        all.x = TRUE,
+        all.y = FALSE
+  ) %>% 
+  ## Time difference between daily weight and sepsis onset
+  .[, diff_to_onset_daily := 
+      abs(lubridate::time_length(
+        daily_weight_time -
+          suspected_infection_time,
+        "hours"))] %>% 
+  ## Time difference between admission weight and sepsis onset
+  .[, diff_to_onset_admission :=
+      abs(lubridate::time_length(
+        admission_weight_time -
+          suspected_infection_time,
+        "hours"))] %>% 
+  .[, preferred_weight := 
+      fcase(
+        !is.na(diff_to_onset_admission) &
+          diff_to_onset_admission <
+          diff_to_onset_daily,
+        "admission weight",
+        
+        is.na(diff_to_onset_admission) |
+          (diff_to_onset_daily <=
+             diff_to_onset_admission),
+        "daily weight")] %>% 
+  .[preferred_weight == "daily weight"] %>% 
+  .[, daily_weight_valid := fcase(
+    
+    diff_to_admission_weight > 20 &
+      diff_to_admission_time <= 48,
+    "not valid: >20 kg weight change within 48h",
+    
+    diff_to_admission_weight <= 2,
+    "valid: <=2 kg difference to admission weight",
+    
+    ## less than 1kg/day difference to admission weight
+    diff_to_admission_time >= 24 &
+      diff_to_admission_weight <= (diff_to_admission_time / 24),
+    "valid: <=1 kg difference per day to admission weight",
+    
+    default = NA_character_)] %>% 
+  .[, daily_weight_kg_final := fcase(
+    daily_weight_valid %in% c("valid: <=2 kg difference to admission weight",
+                              "valid: <=1 kg difference per day to admission weight"),
+    daily_weight,
+    
+    daily_weight_valid == "not valid: >20 kg weight change within 48h" &
+      !is.na(admission_weight_final_kg),
+    admission_weight_final_kg,
+    
+    is.na(daily_weight_valid) &
+      weight_valid %in% c("valid: kg/lb agreement within 2lb",
+                          "valid: weight (lb) equal to previous weight measurement"),
+    admission_weight_final_kg,
+    
+    is.na(daily_weight_valid) &
+      (weight_valid %in% c("only one admission weight (kg) measurement available",
+                           "only one admission weight (lb) measurement available") |
+         is.na(admission_weight_final_kg)),
+    daily_weight,
+    
+    default = NA_real_)] %>% 
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        daily_weight_time,
+        daily_weight_valid,
+        daily_weight_kg_final)]
+
+## Check that there is only one row per patient
+stopifnot(nrow(daily_weight_single[, .N, by = stay_id] %>% .[, N > 1]) == 0)
+
+## Multiple entries for daily weight per stay ID
+daily_weight_multiple <- daily_weight_candidates %>% 
+  .[n_weight > 1] %>% 
+  merge(.,
+        admission_weight_validated[, .(stay_id,
+                                       weight_valid,
+                                       admission_weight_final_kg,
+                                       admission_weight_time)],
+        by = "stay_id",
+        all.x = TRUE,
+        all.y = FALSE) %>% 
+  ## Calculate difference to validated admission weight
+  .[, diff_to_admission_weight := 
+      abs(daily_weight -
+            admission_weight_final_kg)] %>% 
+  ## Time difference to validated admission weight
+  .[, diff_to_admission_time := 
+      abs(lubridate::time_length(
+        daily_weight_time -
+          admission_weight_time,
+        "hours"))] %>% 
+  merge(.,
+        sepsis_base_cohort_data[, .(subject_id,
+                                    hadm_id,
+                                    stay_id,
+                                    suspected_infection_time)] %>% 
+          unique(),
+        by = "stay_id",
+        all.x = TRUE,
+        all.y = FALSE
+  ) %>% 
+  ## Time difference between daily weight and sepsis onset
+  .[, diff_to_onset_daily := 
+      abs(lubridate::time_length(
+        daily_weight_time -
+          suspected_infection_time,
+        "hours"))] %>% 
+  ## Time difference between admission weight and sepsis onset
+  .[, diff_to_onset_admission :=
+      abs(lubridate::time_length(
+        admission_weight_time -
+          suspected_infection_time,
+        "hours"))] %>% 
+  .[order(subject_id,
+          hadm_id,
+          stay_id,
+          daily_weight_time)] %>% 
+  .[, `:=`(
+    prev_daily_weight = shift(daily_weight),
+    diff_to_prev_daily = abs(daily_weight - shift(daily_weight)),
+    time_to_prev_daily = abs(lubridate::time_length(
+      daily_weight_time - shift(daily_weight_time),
+      "hours"
+    ))
+  ), by = .(subject_id,
+            hadm_id,
+            stay_id)] %>% 
+  .[is.na(diff_to_onset_admission) |
+      diff_to_onset_daily <= diff_to_onset_admission] %>% 
+  .[, daily_weight_valid := fcase(
+    
+    is.na(admission_weight_final_kg),
+    "only daily weight available",
+    
+    diff_to_admission_weight > 20 &
+      diff_to_admission_time <= 48,
+    "not valid: >20 kg difference to admission weight within 2 days",
+    
+    diff_to_admission_weight <= 2,
+    "valid: <=2kg difference to admission weight",
+    
+    ## less than 1kg difference per day from admission weight
+    diff_to_admission_time >= 24 &
+      diff_to_admission_weight <= diff_to_admission_time / 24,
+    "valid: <=1kg difference per day to admission weight",
+    
+    !is.na(diff_to_prev_daily) &
+      diff_to_prev_daily <= 2,
+    "valid: <=2 kg difference to previous daily weight",
+    
+    !is.na(diff_to_prev_daily) &
+      diff_to_prev_daily <= time_to_prev_daily / 24,
+    "valid: <=1 kg difference per day to previous daily weight",
+    
+    default = NA_character_
+  )] %>% 
+  .[, daily_weight_valid :=
+      factor(daily_weight_valid,
+             levels = c("valid: <=2kg difference to admission weight",
+                        "valid: <=1kg difference per day to admission weight",
+                        "valid: <=2 kg difference to previous daily weight",
+                        "valid: <=1 kg difference per day to previous daily weight",
+                        "only daily weight available",
+                        "not valid: >20 kg difference to admission weight within 2 days"))] %>% 
+  .[order(stay_id,
+          daily_weight_valid,
+          diff_to_onset_daily,
+          daily_weight_time),
+    ## select one daily weight value (most valid) per patient
+    .SD[1],
+    by = stay_id] %>% 
+  .[, daily_weight_kg_final := fcase(
+    daily_weight_valid %in% c(
+      "valid: <=2kg difference to admission weight",
+      "valid: <=1kg difference per day to admission weight",
+      "valid: <=2 kg difference to previous daily weight",
+      "valid: <=1 kg difference per day to previous daily weight",
+      "only daily weight available"),
+    daily_weight,
+    
+    daily_weight_valid == "not valid: >20 kg difference to admission weight within 2 days" &
+      !is.na(admission_weight_final_kg),
+    admission_weight_final_kg,
+    
+    default = NA_real_)] %>% 
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        daily_weight_time,
+        daily_weight_valid,
+        daily_weight_kg_final)]
+
+## Check that there is one row per patient
+stopifnot(nrow(daily_weight_multiple[, .N, by = stay_id] %>% .[N > 1]) == 0)
+
+## Combine to one daily weight table
+daily_weight_validated <- rbindlist(
+  list(daily_weight_single,
+       daily_weight_multiple),
+  fill = TRUE)
+
+
+### Patient Weight for Fluids ---------------------------------------------------
+weight_for_fluids <- admission_weight_validated %>% 
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        weight_valid,
+        admission_weight_final_kg,
+        admission_weight_time)] %>% 
+  merge(.,
+        daily_weight_validated,
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id"),
+        all = TRUE) %>% 
+  .[, weight_kg_for_fluids := fcase(
+    !is.na(daily_weight_kg_final),
+    daily_weight_kg_final,
+    
+    !is.na(admission_weight_final_kg) &
+      is.na(daily_weight_kg_final),
+    admission_weight_final_kg,
+    
+    default = NA_real_)] %>% 
+  .[, weight_source := fcase(
+    !is.na(daily_weight_kg_final),
+    "validated daily weight",
+    
+    is.na(daily_weight_kg_final) &
+      !is.na(admission_weight_final_kg),
+    "validated admission weight",
+    
+    is.na(daily_weight_kg_final) &
+      is.na(admission_weight_final_kg),
+    "missing"
+  )] %>% 
+  .[!is.na(weight_kg_for_fluids)] %>% 
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        weight_kg_for_fluids,
+        weight_source)] %>% 
+  unique()
+
+## Add to sepsis base cohort
+# sepsis_base_cohort_data <-
+sepsis_base_cohort_data <-
+  sepsis_base_cohort_data %>% 
+  merge(.,
+        weight_for_fluids,
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id"),
+        all.x = TRUE,
+        all.y = FALSE) %>% 
+  .[, time_sepsis_to_shock := 
+      lubridate::time_length(
+        septic_shock_onset_time -
+          suspected_infection_time,
+        "hours")]
+
+sepsis_base_cohort_data[, summary(time_sepsis_to_shock)]
+
+quantile(sepsis_base_cohort_data$time_sepsis_to_shock,
+         probs = c(0.01,
+                   0.05,
+                   0.1,
+                   0.5,
+                   0.75,
+                   0.9,
+                   0.95,
+                   0.99),
+         na.rm = TRUE)
+
+
+saveRDS(sepsis_base_cohort_data, here::here("Data/sepsis_base_cohort_data.rds"))
+
+
+## 14. FLOW CHART --------------------------------------------------------------
+## Assemble cohort flow chart
+flow <- rbindlist(list(s0,
+                       s1,
+                       s2,
+                       s3,
+                       s4)) %>% 
+  .[, excluded := shift(patients) - patients]
+
+
+pat  <- flow$patients
+stay <- flow$stays
+labs <- gsub("^[0-9]+\\.\\s*", "", flow$step)
+
+## main boxes: patients, plus ICU stays when they differ (rows 1–2)
+main_txt <- ifelse(pat == stay,
+                   glue("{format(pat, big.mark=',')} patients"),
+                   glue("{format(pat, big.mark=',')} patients\\n({format(stay, big.mark=',')} ICU stays)"))
+
+nodes_main <- glue("n{seq_along(pat)} [label=\"{labs}\\n{main_txt}\"]")
+
+## per-step removals
+pat_exc  <- c(NA, head(pat,  -1) - tail(pat,  -1))
+stay_exc <- c(NA, head(stay, -1) - tail(stay, -1))
+reasons  <- c(NA,
+              "no sepsis diagnosed",
+              "restricted to first ICU stay",
+              "onset > 24h from ICU admission",
+              "ICU length of stay < 24h")
+
+excl_txt <- character(length(pat))
+for (i in 2:length(pat)) {
+  excl_txt[i] <- if (pat_exc[i] > 0)
+    glue("Excluded: {reasons[i]}\\n{format(pat_exc[i], big.mark=',')} patients")
+  else                                   # step 3: no patients lost, stays trimmed
+    glue("Restricted to first ICU stay\\n{format(stay_exc[i], big.mark=',')} subsequent ICU stays removed")
+}
+
+## assemble edges + side exclusion boxes
+body <- character()
+for (i in 2:length(pat)) {
+  body <- c(body,
+            glue("p{i} [shape=point, width=0.01, height=0.01, style=invis];"),
+            glue("n{i-1} -> p{i} [arrowhead=none];"),
+            glue("p{i} -> n{i};"),
+            glue("e{i} [label=\"{excl_txt[i]}\", fillcolor=\"#F9EBEA\"];"),
+            glue("p{i} -> e{i};"),
+            glue("{{ rank=same; p{i}; e{i} }}")
+  )
+}
+
+dot <- paste(
+  "digraph cohort {",
+  "  graph [rankdir=TB, nodesep=0.2, ranksep=0.25];",
+  '  node  [shape=box, style="rounded,filled", fillcolor="#EAF2F8",',
+  '         fontname="Helvetica", fontsize=8, margin=\"0.12,0.06\", height = 0.4];',
+  '  edge  [color="#333333", arrowsize = 0.7];',
+  paste("  ", nodes_main, collapse = "\n"),
+  paste("  ", body,       collapse = "\n"),
+  "}",
+  sep = "\n"
+)
+
+grViz(dot)
+
+## Save flowchart as pdf
+grViz(dot) %>% 
+  DiagrammeRsvg::export_svg() %>% 
+  charToRaw() %>% 
+  rsvg::rsvg_pdf(here::here("Outputs/cohort_flowchart.pdf"),
+                 width = 1400)
 

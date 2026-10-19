@@ -12,634 +12,6 @@ ssc_recommendations <- readRDS(here::here("Data/ssc_recommendations.rds")) %>%
 sepsis_base_cohort_data <- readRDS(here::here("Data/sepsis_base_cohort_data.rds")) %>% 
   setDT()
 
-## Define sepsis patient cohort ------------------------------------------------
-sepsis_base_cohort_data <- sepsis_base_cohort_data %>% 
-  ## patients with sepsis
-  .[sepsis3 == TRUE] %>% 
-  .[, time_to_sepsis :=
-      lubridate::time_length(
-          suspected_infection_time -
-            icu_intime,
-        "hours")] %>% 
-  ## Keep only first ICU stay per patient
-  .[order(subject_id,
-          hadm_id,
-          stay_id,
-          icu_intime),
-    .SD[1],
-    by = .(subject_id)] %>% 
-  ## sepsis diagnosis within +/-24h to ICU admission
-  .[suspected_infection_time >= icu_intime - hours(24) &
-      suspected_infection_time <= icu_intime + hours(24)] %>% 
-  ## ICU length of stay >= 24h
-  .[time_length(icu_outtime -
-                  icu_intime,
-                unit = "hours") >= 24] %>%
-  ## Initial IV fluid resuscitation (crystalloids, colloids, other IV fluids)
-  ## should start immediately after sepsis onset, but to account for delayed
-  ## documentation, up to 1 hour before recorded sepsis onset is considered.
-  ## Initial resuscitation is restricted to the first three hours are sepsis
-  ## onset, as per the SSC guidelines and many other sources
-  .[, fluid_resuscitation_start := suspected_infection_time -
-      hours(1)] %>%
-  .[, fluid_resuscitation_end := suspected_infection_time +
-      hours(3)]
-
-
-## Admission Weight Data Cleaning ----------------------------------------------
-## Item IDs for admission weight (kg)
-admission_weight_kg_itemid <- d_items %>%
-  .[label == "Admission Weight (Kg)"]
-
-## Admission weight (kg)
-admission_weight_kgs <- all_chartevents %>%
-  ## only stays associated with patients in the sepsis base cohort
-  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
-  ## only entries associated to daily weight (kgs)
-  .[itemid == admission_weight_kg_itemid$itemid &
-      !is.na(valuenum)] %>% 
-  .[, .(stay_id,
-        admission_weight_kg_time = charttime,
-        admission_weight_kg = valuenum)] %>%
-  unique() %>% 
-  ## remove obvious outliers
-  .[admission_weight_kg >= 30 &
-      admission_weight_kg <= 300]
-
-## Check that only one value for patient is included
-stopifnot(nrow(admission_weight_kgs[, .N, by = stay_id] %>% .[N > 1]) == 0)
-
-## Item IDs for admission weight (lbs)
-admission_weight_lb_itemid <- d_items %>% 
-  .[label == "Admission Weight (lbs.)"]
-
-## Admission weight (lb)
-admission_weight_lbs <- all_chartevents %>% 
-  ## only stays associated with patients in the sepsis base cohort
-  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
-  ## only entries associated to daily weight (lbs)
-  .[itemid == admission_weight_lb_itemid$itemid &
-      !is.na(valuenum)] %>% 
-  .[, .(stay_id,
-        admission_weight_lb_time = charttime,
-        admission_weight_lb = valuenum)] %>%
-  unique() %>% 
-  ## remove obvious outliers
-  .[admission_weight_lb >= 30 * 2.20462 &
-      admission_weight_lb <= 300 * 2.20462]
-
-## Validate weight entries by comparing admission 
-## weight (kg) and admission weight (lb)
-admission_weight_merged <- admission_weight_lbs %>% 
-  merge(.,
-        admission_weight_kgs,
-        by = "stay_id",
-        all = TRUE) %>% 
-  ## calculate the difference between admission weight (kg)
-  ## and admissinon weight (lb) in lbs (1kg = 2.20462 lbs)
-  .[, `:=` (
-    weight_diff_lb = abs((admission_weight_kg * 2.20462) - 
-                                   admission_weight_lb),
-    weight_time_diff_hr = abs(lubridate::time_length(
-      admission_weight_kg_time -
-      admission_weight_lb_time,
-      "hours")))] 
-  
-## select the entry of admission weight (lb) closest to 
-## admission weight (kg) for each stay_id
-## patients with both admission weight(kg) 
-## and admission weight(lb) entries
-admission_weight_both <- admission_weight_merged %>% 
-    .[!is.na(admission_weight_kg) &
-        !is.na(admission_weight_lb)] %>% 
-    .[order(stay_id,
-          weight_diff_lb,
-          weight_time_diff_hr),
-    .SD[1],
-    by = stay_id] %>% 
-  .[, weight_valid := fcase(
-    !is.na(admission_weight_kg) &
-      !is.na(admission_weight_lb) &
-      weight_diff_lb <= 2,
-    "valid: kg/lb agreement within 2lb",
-    
-    !is.na(admission_weight_kg) &
-      !is.na(admission_weight_lb) &
-      weight_diff_lb > 2,
-    "kg/lb discrepancy >2 lb"
-  )] %>% 
-  .[, admission_weight_final_kg := fcase(
-    weight_valid == "valid: kg/lb agreement within 2lb",
-    admission_weight_kg,
-    
-    default = NA_real_)] %>% 
-  .[, .(stay_id,
-        admission_weight_lb_time,
-        admission_weight_lb,
-        admission_weight_kg_time,
-        admission_weight_kg,
-        weight_valid,
-        admission_weight_final_kg,
-        admission_weight_time = admission_weight_kg_time)]
-
-## Check that there is only one row per stay_id
-stopifnot(nrow(admission_weight_both[, .N, by = stay_id] %>% .[N > 1]) == 0)
-
-## Patients with only admission weight (kg)
-admission_weight_only_kg <- admission_weight_merged %>% 
-  .[!is.na(admission_weight_kg) &
-      is.na(admission_weight_lb)] %>% 
-  .[, `:=` (
-    weight_valid = "only one admission weight (kg) measurement available",
-    admission_weight_final_kg = admission_weight_kg
-  )] %>% 
-  .[, .(stay_id,
-        admission_weight_lb_time,
-        admission_weight_lb,
-        admission_weight_kg_time,
-        admission_weight_kg,
-        weight_valid,
-        admission_weight_final_kg,
-        admission_weight_time = admission_weight_kg_time)]
-
-## Check that there is only one row per stay_id
-stopifnot(nrow(admission_weight_only_kg[, .N, by = stay_id] %>% .[N > 1]) == 0)
-
-## admission weight(lb) entries
-admission_weight_only_lb <- admission_weight_merged %>% 
-  .[!is.na(admission_weight_lb) &
-      is.na(admission_weight_kg)] %>%
-  .[order(stay_id,
-          admission_weight_lb_time)] %>% 
-  .[, n_weight := .N, 
-    by = stay_id] %>% 
-  .[, `:=` (diff_to_prev = 
-              abs(admission_weight_lb -
-              shift(admission_weight_lb,
-                    type = "lag")),
-            prev_weight_lb = 
-              shift(admission_weight_lb,
-                    type = "lag"),
-            time_to_prev =
-              abs(lubridate::time_length(admission_weight_lb_time -
-              shift(admission_weight_lb_time,
-                    type = "lag"),
-              "hours"))),
-    by = stay_id] %>% 
-  .[, diff_to_prev := nafill(diff_to_prev,
-                             type = "nocb"),
-    by = stay_id] %>%
-  .[, time_to_prev := nafill(time_to_prev,
-                             type = "nocb"),
-    by = stay_id] %>%
-  # .[(!is.na(diff_to_prev) &
-  #     !is.na(time_to_prev)) |
-  #     n_weight == 1] %>%
-  # add suspected sepsis onset time
-  merge(.,
-        sepsis_base_cohort_data[, .(subject_id,
-                                    hadm_id,
-                                    stay_id,
-                                    suspected_infection_time)] %>% 
-          unique(),
-        by = "stay_id",
-        all.x = TRUE,
-        all.y = FALSE) %>% 
-  .[, time_to_sepsis := abs(lubridate::time_length(
-    suspected_infection_time -
-      admission_weight_lb_time,
-    "hours"
-  ))] %>% 
-  .[, weight_valid := fcase(
-    
-    n_weight == 1,
-    "only one admission weight (lb) measurement available",
-    
-    !is.na(diff_to_prev) &
-      diff_to_prev == 0,
-    "valid: weight (lb) equal to previous weight measurement",
-    
-    !is.na(diff_to_prev) &
-      diff_to_prev <= 5,
-    "valid: <=5lb difference between measurements",
-    
-    !is.na(diff_to_prev) &
-      diff_to_prev > 5 &
-      time_to_prev <= 1,
-    "not valid: >5 lb difference within 1h",
-    
-    !is.na(diff_to_prev) &
-      diff_to_prev > 5 &
-      time_to_prev > 1,
-    "uncertain: >5lb difference between measurements"
-  )] %>% 
-  .[, weight_valid := factor(weight_valid,
-                             levels = c("valid: weight (lb) equal to previous weight measurement",
-                                        "valid: <=5lb difference between measurements",
-                                        "uncertain: >5lb difference between measurements",
-                                        "only one admission weight (lb) measurement available",
-                                        "not valid: >5 lb difference within 1h"
-                                        ))] %>% 
-  .[order(subject_id,
-          hadm_id,
-          stay_id,
-          weight_valid,
-          time_to_sepsis),
-    .SD[1],
-    by = .(subject_id,
-           hadm_id,
-           stay_id)] %>% 
-  .[, admission_weight_final_kg := fcase(
-    
-    weight_valid %in% c("valid: weight (lb) equal to previous weight measurement",
-                        "valid: <=5lb difference between measurements",
-                        "uncertain: >5lb difference between measurements",
-                        "only one admission weight (lb) measurement available"),
-    admission_weight_lb / 2.20462
-  )] %>% 
-  .[, .(stay_id,
-        admission_weight_lb_time,
-        admission_weight_lb,
-        admission_weight_kg_time,
-        admission_weight_kg,
-        weight_valid,
-        admission_weight_final_kg,
-        admission_weight_time = admission_weight_lb_time)]
-
-## Check that there is only one row per stay ID
-stopifnot(nrow(admission_weight_only_lb[, .N, by = stay_id] %>% .[N > 1]) == 0)
-
-## Combine into one validated admission weight dataset
-admission_weight_validated <- 
-  rbindlist(list(
-    admission_weight_both,
-    admission_weight_only_kg,
-    admission_weight_only_lb
-  )) %>% 
-  ## add subject and hospital admission IDs
-  merge(.,
-        sepsis_base_cohort_data[, .(subject_id,
-                                    hadm_id,
-                                    stay_id)] %>% 
-          unique(),
-        by = "stay_id",
-        all.x = TRUE,
-        all.y = FALSE)
-
-## Check that there is only one row per stay ID
-stopifnot(nrow(admission_weight_validated[, .N, by = stay_id] %>% .[N > 1]) == 0)
-
-# admission_weight_validated %>% 
-#   copy() %>% 
-#   ggplot(aes(
-#     x = weight_valid,
-#     fill = weight_valid
-#   )) +
-#   geom_bar() +
-#   theme_minimal() +
-#   theme(axis.text.x = element_text(angle = 90))
-
-## Daily Weight Data Cleaning --------------------------------------------------
-## Item ID for daily weight measurements
-daily_weight_itemid <- chart_itemids %>% 
-  .[grepl("Daily Weight",
-          label,
-          ignore.case = TRUE)]
-
-## Closest daily weight to sepsis onset per stay ID
-daily_weight_candidates <- all_chartevents %>%
-  ## only stays associated with patients in the sepsis base cohort
-  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
-  ## only entries associated to daily weight
-  .[itemid %in% daily_weight_itemid$itemid] %>%
-  ## add item id unitname
-  merge(.,
-        daily_weight_itemid[, .(itemid,
-                                unitname)],
-        by = "itemid") %>% 
-  .[, .(stay_id,
-        daily_weight_time = charttime,
-        daily_weight = valuenum,
-        weight_unit = unitname)] %>%
-  unique() %>% 
-  ## remove obvious outliers
-  .[daily_weight >= 30 &
-      daily_weight <= 300] %>%
-  .[order(stay_id,
-          daily_weight_time)] %>% 
-  .[, n_weight := .N,
-    by = stay_id]
-
-
-## Singular entry for daily weight per stay ID
-## contains only daily weight entries which have been validated
-## and are closer to sepsis onset than admission weight and 
-## should therefore be used for fluid amount calculation
-daily_weight_single <- daily_weight_candidates %>% 
-  .[n_weight == 1] %>% 
-  merge(.,
-        admission_weight_validated[, .(stay_id,
-                                       weight_valid,
-                                       admission_weight_final_kg,
-                                       admission_weight_time)],
-        by = "stay_id",
-        all.x = TRUE,
-        all.y = FALSE) %>% 
-  ## Calculate difference to validated admission weight
-  .[, diff_to_admission_weight := 
-      abs(daily_weight -
-      admission_weight_final_kg)] %>% 
-  ## Time difference to validated admission weight
-  .[, diff_to_admission_time := 
-      abs(lubridate::time_length(
-        daily_weight_time -
-        admission_weight_time,
-        "hours"))] %>% 
-  merge(.,
-        sepsis_base_cohort_data[, .(subject_id,
-                                    hadm_id,
-                                    stay_id,
-                                    suspected_infection_time)] %>% 
-          unique(),
-        by = "stay_id",
-        all.x = TRUE,
-        all.y = FALSE
-  ) %>% 
-  ## Time difference between daily weight and sepsis onset
-  .[, diff_to_onset_daily := 
-      abs(lubridate::time_length(
-        daily_weight_time -
-          suspected_infection_time,
-        "hours"))] %>% 
-  ## Time difference between admission weight and sepsis onset
-  .[, diff_to_onset_admission :=
-      abs(lubridate::time_length(
-        admission_weight_time -
-          suspected_infection_time,
-        "hours"))] %>% 
-  .[, preferred_weight := 
-      fcase(
-        !is.na(diff_to_onset_admission) &
-        diff_to_onset_admission <
-          diff_to_onset_daily,
-        "admission weight",
-        
-        is.na(diff_to_onset_admission) |
-        (diff_to_onset_daily <=
-          diff_to_onset_admission),
-        "daily weight")] %>% 
-  .[preferred_weight == "daily weight"] %>% 
-  .[, daily_weight_valid := fcase(
-    
-    diff_to_admission_weight > 20 &
-    diff_to_admission_time <= 48,
-    "not valid: >20 kg weight change within 48h",
-    
-    diff_to_admission_weight <= 2,
-    "valid: <=2 kg difference to admission weight",
-    
-    ## less than 1kg/day difference to admission weight
-    diff_to_admission_time >= 24 &
-    diff_to_admission_weight <= (diff_to_admission_time / 24),
-    "valid: <=1 kg difference per day to admission weight",
-    
-    default = NA_character_)] %>% 
-  .[, daily_weight_kg_final := fcase(
-    daily_weight_valid %in% c("valid: <=2 kg difference to admission weight",
-                              "valid: <=1 kg difference per day to admission weight"),
-    daily_weight,
-    
-    daily_weight_valid == "not valid: >20 kg weight change within 48h" &
-      !is.na(admission_weight_final_kg),
-    admission_weight_final_kg,
-    
-    is.na(daily_weight_valid) &
-    weight_valid %in% c("valid: kg/lb agreement within 2lb",
-                        "valid: weight (lb) equal to previous weight measurement"),
-    admission_weight_final_kg,
-    
-    is.na(daily_weight_valid) &
-    (weight_valid %in% c("only one admission weight (kg) measurement available",
-                        "only one admission weight (lb) measurement available") |
-       is.na(admission_weight_final_kg)),
-    daily_weight,
-    
-    default = NA_real_)] %>% 
-  .[, .(subject_id,
-        hadm_id,
-        stay_id,
-        daily_weight_time,
-        daily_weight_valid,
-        daily_weight_kg_final)]
-
-## Check that there is only one row per patient
-stopifnot(nrow(daily_weight_single[, .N, by = stay_id] %>% .[, N > 1]) == 0)
-
-## Multiple entries for daily weight per stay ID
-daily_weight_multiple <- daily_weight_candidates %>% 
-  .[n_weight > 1] %>% 
-  merge(.,
-        admission_weight_validated[, .(stay_id,
-                                       weight_valid,
-                                       admission_weight_final_kg,
-                                       admission_weight_time)],
-        by = "stay_id",
-        all.x = TRUE,
-        all.y = FALSE) %>% 
-  ## Calculate difference to validated admission weight
-  .[, diff_to_admission_weight := 
-      abs(daily_weight -
-            admission_weight_final_kg)] %>% 
-  ## Time difference to validated admission weight
-  .[, diff_to_admission_time := 
-      abs(lubridate::time_length(
-        daily_weight_time -
-          admission_weight_time,
-        "hours"))] %>% 
-  merge(.,
-        sepsis_base_cohort_data[, .(subject_id,
-                                    hadm_id,
-                                    stay_id,
-                                    suspected_infection_time)] %>% 
-          unique(),
-        by = "stay_id",
-        all.x = TRUE,
-        all.y = FALSE
-  ) %>% 
-  ## Time difference between daily weight and sepsis onset
-  .[, diff_to_onset_daily := 
-      abs(lubridate::time_length(
-        daily_weight_time -
-          suspected_infection_time,
-        "hours"))] %>% 
-  ## Time difference between admission weight and sepsis onset
-  .[, diff_to_onset_admission :=
-      abs(lubridate::time_length(
-        admission_weight_time -
-          suspected_infection_time,
-        "hours"))] %>% 
-  .[order(subject_id,
-          hadm_id,
-          stay_id,
-          daily_weight_time)] %>% 
-  .[, `:=`(
-    prev_daily_weight = shift(daily_weight),
-    diff_to_prev_daily = abs(daily_weight - shift(daily_weight)),
-    time_to_prev_daily = abs(lubridate::time_length(
-      daily_weight_time - shift(daily_weight_time),
-      "hours"
-    ))
-  ), by = .(subject_id,
-            hadm_id,
-            stay_id)] %>% 
-  .[is.na(diff_to_onset_admission) |
-      diff_to_onset_daily <= diff_to_onset_admission] %>% 
-  .[, daily_weight_valid := fcase(
-    
-    is.na(admission_weight_final_kg),
-    "only daily weight available",
-    
-    diff_to_admission_weight > 20 &
-      diff_to_admission_time <= 48,
-    "not valid: >20 kg difference to admission weight within 2 days",
-    
-    diff_to_admission_weight <= 2,
-    "valid: <=2kg difference to admission weight",
-    
-    ## less than 1kg difference per day from admission weight
-    diff_to_admission_time >= 24 &
-    diff_to_admission_weight <= diff_to_admission_time / 24,
-    "valid: <=1kg difference per day to admission weight",
-    
-    !is.na(diff_to_prev_daily) &
-      diff_to_prev_daily <= 2,
-    "valid: <=2 kg difference to previous daily weight",
-    
-    !is.na(diff_to_prev_daily) &
-      diff_to_prev_daily <= time_to_prev_daily / 24,
-    "valid: <=1 kg difference per day to previous daily weight",
-    
-    default = NA_character_
-  )] %>% 
-  .[, daily_weight_valid :=
-      factor(daily_weight_valid,
-             levels = c("valid: <=2kg difference to admission weight",
-                        "valid: <=1kg difference per day to admission weight",
-                        "valid: <=2 kg difference to previous daily weight",
-                        "valid: <=1 kg difference per day to previous daily weight",
-                        "only daily weight available",
-                        "not valid: >20 kg difference to admission weight within 2 days"))] %>% 
-  .[order(stay_id,
-          daily_weight_valid,
-          diff_to_onset_daily,
-          daily_weight_time),
-    ## select one daily weight value (most valid) per patient
-    .SD[1],
-    by = stay_id] %>% 
-  .[, daily_weight_kg_final := fcase(
-    daily_weight_valid %in% c(
-      "valid: <=2kg difference to admission weight",
-      "valid: <=1kg difference per day to admission weight",
-      "valid: <=2 kg difference to previous daily weight",
-      "valid: <=1 kg difference per day to previous daily weight",
-      "only daily weight available"),
-    daily_weight,
-    
-    daily_weight_valid == "not valid: >20 kg difference to admission weight within 2 days" &
-      !is.na(admission_weight_final_kg),
-    admission_weight_final_kg,
-    
-    default = NA_real_)] %>% 
-  .[, .(subject_id,
-        hadm_id,
-        stay_id,
-        daily_weight_time,
-        daily_weight_valid,
-        daily_weight_kg_final)]
-
-## Check that there is one row per patient
-stopifnot(nrow(daily_weight_multiple[, .N, by = stay_id] %>% .[N > 1]) == 0)
-
-## Combine to one daily weight table
-daily_weight_validated <- rbindlist(
-  list(daily_weight_single,
-       daily_weight_multiple),
-  fill = TRUE)
-
-
-## Patient Weight for Fluids ---------------------------------------------------
-weight_for_fluids <- admission_weight_validated %>% 
-  .[, .(subject_id,
-        hadm_id,
-        stay_id,
-        weight_valid,
-        admission_weight_final_kg,
-        admission_weight_time)] %>% 
-  merge(.,
-        daily_weight_validated,
-        by = c("subject_id",
-               "hadm_id",
-               "stay_id"),
-        all = TRUE) %>% 
-  .[, weight_kg_for_fluids := fcase(
-    !is.na(daily_weight_kg_final),
-    daily_weight_kg_final,
-    
-    !is.na(admission_weight_final_kg) &
-      is.na(daily_weight_kg_final),
-    admission_weight_final_kg,
-    
-    default = NA_real_)] %>% 
-  .[, weight_source := fcase(
-    !is.na(daily_weight_kg_final),
-    "validated daily weight",
-    
-    is.na(daily_weight_kg_final) &
-      !is.na(admission_weight_final_kg),
-    "validated admission weight",
-    
-    is.na(daily_weight_kg_final) &
-      is.na(admission_weight_final_kg),
-    "missing"
-  )] %>% 
-  .[!is.na(weight_kg_for_fluids)] %>% 
-  .[, .(subject_id,
-        hadm_id,
-        stay_id,
-        weight_kg_for_fluids,
-        weight_source)] %>% 
-  unique()
-
-## Add to sepsis base cohort
-# sepsis_base_cohort_data <-
-sepsis_base_cohort_data <-
-  sepsis_base_cohort_data %>% 
-  merge(.,
-        weight_for_fluids,
-        by = c("subject_id",
-               "hadm_id",
-               "stay_id"),
-        all.x = TRUE,
-        all.y = FALSE) %>% 
-  .[, time_sepsis_to_shock := 
-      lubridate::time_length(
-        septic_shock_onset_time -
-          suspected_infection_time,
-        "hours")]
-
-sepsis_base_cohort_data[, summary(time_sepsis_to_shock)]
-
-quantile(sepsis_base_cohort_data$time_sepsis_to_shock,
-         probs = c(0.01,
-                   0.05,
-                   0.1,
-                   0.5,
-                   0.75,
-                   0.9,
-                   0.95,
-                   0.99),
-         na.rm = TRUE)
-
 ## First sepsis antimicrobial --------------------------------------------------
 ## First antimicrobial administration related to sepsis episode
 first_sepsis_antimicrobial <- sepsis_base_cohort_data %>% 
@@ -1215,6 +587,30 @@ first_sepsis_blood_culture <- all_microbioevents %>%
            hadm_id,
            stay_id)]
 
+## single source of truth for onset anchoring, reused by recs 7, 16 and 17
+onset_anchor_lookup <- unique(
+  sepsis_base_cohort_data[, .(subject_id,
+                              hadm_id,
+                              stay_id,
+                              suspected_infection_time,
+                              culture_time,
+                              antibiotic_time)]) %>%
+  .[, onset_anchor := fcase(
+    
+    !is.na(culture_time) &
+      suspected_infection_time == culture_time,
+    "culture-anchored",
+    
+    !is.na(antibiotic_time) &
+      suspected_infection_time == antibiotic_time,
+    "antibiotic-anchored",
+    
+    default = "other/unresolved")] %>%
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        onset_anchor)]
+
 ## Adherent if the earliest qualifying blood culture was drawn at or before the
 ## first systemic antimicrobial. This is equivalent to testing whether any
 ## qualifying culture preceded it: if the earliest does not, none can.
@@ -1240,7 +636,21 @@ rec_7 <- first_sepsis_antimicrobial %>%
       is.na(blood_culture_time),
     FALSE,
   
-    default = NA)]
+    default = NA)] %>% 
+  ## onset anchor: the same culture/antibiotic circularity as recs 16 and 17.
+  ## Whether the culture precedes the antimicrobial is largely fixed by which
+  ## timestamp anchors Sepsis-3 onset, so adherence is near-tautological by anchor.
+  merge(.,
+        onset_anchor_lookup,
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id"),
+        all.x = TRUE,
+        all.y = FALSE) %>%
+  .[, rec_7_culture_before_antimicrobial_causal := fifelse(
+    onset_anchor == "culture-anchored",
+    rec_7_culture_before_antimicrobial,
+    NA)]
 
 stopifnot(nrow(first_sepsis_antimicrobial) == nrow(unique(sepsis_base_cohort_data, 
                                                           by = c("subject_id",
@@ -1250,6 +660,18 @@ stopifnot(nrow(first_sepsis_antimicrobial) == nrow(unique(sepsis_base_cohort_dat
 stopifnot(first_sepsis_antimicrobial[, sum(is.na(antimicrobial_time))] == 0)
 
 stopifnot(nrow(rec_7) == nrow(first_sepsis_antimicrobial))
+
+## Adherence Rate
+proportions(table(rec_7$rec_7_culture_before_antimicrobial))
+
+## Antimicrobial source rate
+proportions(table(first_sepsis_antimicrobial$antimicrobial_source))
+table(first_sepsis_antimicrobial$antimicrobial_source)
+
+## adherence by onset anchor (isolates the culture -> antibiotic circularity)
+rec_7[, .(adherence = mean(rec_7_culture_before_antimicrobial, na.rm = TRUE),
+          n         = .N),
+      by = onset_anchor]
 
 
 ## 8 RECOMMENDATION ------------------------------------------------------------
@@ -1305,20 +727,14 @@ first_lactate <- lactate_events %>%
                "hadm_id"),
         all.x = TRUE,
         all.y = FALSE) %>% 
-  .[, lactate_lower_bound := pmin(suspected_infection_time - 
-                                    hours(1),                     
-                                  pmax(fcoalesce(ed_intime,
-                                                 admittime, 
-                                                 icu_intime),       
-                                       suspected_infection_time - 
-                                         hours(24),               
-                                       na.rm = TRUE),
-                                  na.rm = TRUE)] %>% 
-  ## meant to guide resuscitation and subsequent therapeutic interventions
-  ## therefore guideline is restricted to initial fluid resuscitation window
-  ## so lactate measurement can guide decision making
-.[lactate_time >= lactate_lower_bound &
-    lactate_time <= suspected_infection_time + hours(24)] %>% 
+  .[, lactate_lower_bound := suspected_infection_time - lubridate::hours(1)] %>%
+  ## lactate is drawn to assess THIS suspected-sepsis episode (to detect
+  ## hypoperfusion / shock), so the window is anchored tightly to onset; a
+  ## lactate drawn well before onset predates the suspicion and does not serve
+  ## that purpose. The 1h buffer absorbs documentation lag, since onset and the
+  ## triggering labs are often near-simultaneous.
+  .[lactate_time >= lactate_lower_bound &
+      lactate_time <= suspected_infection_time + lubridate::hours(24)] %>%
   # .[lactate_time >= suspected_infection_time - hours(1) &
   #     lactate_time <= suspected_infection_time + hours(24)] %>%
   .[order(subject_id,
@@ -1365,7 +781,7 @@ rec_8 <- sepsis_base_cohort_data %>%
     FALSE,
     
     default = NA)] %>% 
-  .[, rec_8_lactate_measured_within_1h := fcase(
+  .[, rec_8_lactate_measured_within_1h_causal := fcase(
     
     !is.na(lactate_time) &
       time_to_sepsis <= 1,
@@ -1408,7 +824,7 @@ rec_8 <- sepsis_base_cohort_data %>%
         hadm_id,
         stay_id,
         rec_8_lactate_measured,
-        rec_8_lactate_measured_within_1h,
+        rec_8_lactate_measured_within_1h_causal,
         rec_8_lactate_measured_within_3h,
         rec_8_lactate_measured_within_6h,
         time_to_sepsis)] %>% 
@@ -1419,6 +835,14 @@ rec_8 <- sepsis_base_cohort_data %>%
     "eligible",
     
     default = NA_character_)]
+
+
+## Check resulting adherence rates
+proportions(table(rec_8$rec_8_lactate_measured))
+proportions(table(rec_8$rec_8_lactate_measured_within_1h_causal))
+proportions(table(rec_8$rec_8_lactate_measured_within_3h))
+proportions(table(rec_8$rec_8_lactate_measured_within_6h))
+summary(first_lactate$time_to_sepsis)
 
 ## 10 RECOMMENDATION -----------------------------------------------------------
 ## Recommendation 10 targets patients with sepsis-induced hypoperfusion or
@@ -1562,37 +986,120 @@ input_fluid_classification <- d_items %>%
     
     default = "other fluid")]
 
-## Only crystalloid given AS FLUID counts: ordercategorydescription in "Bolus"
+## Only crystalloid given as fluid counts: ordercategorydescription = "Bolus"
 ## and "Continuous IV". Crystalloid recorded under "Continuous Med" (drip carrier
 ## bags) and "Drug Push" (medication diluents) is excluded -- it is incidental to
 ## drug delivery, infused at drug rather than resuscitation rates, and would
 ## confound adherence with illness severity (sicker patients on more drips accrue
-## more carrier volume). PRIMARY = Bolus + Continuous IV; boluses-only added as a
+## more carrier volume). Primary = Bolus + Continuous IV; boluses-only added as a
 ## sensitivity. Target uses the validated weight_kg_for_fluids, not the
 ## inputevents patientweight field (which contains gross data-entry errors).
-crystalloid_itemids <- input_fluid_classification %>% 
-  .[fluid_type %in% c("Unbalanced crystalloid (normal saline)",
-                      "Balanced crystalloid") |
-      (fluid_type == "Aggregate intake (non-ICU)" &
-         grepl("crystalloid",
-               label,
-               ignore.case = TRUE))]
+# crystalloid_itemids <- input_fluid_classification %>%
+#   .[fluid_type %in% c("Unbalanced crystalloid (normal saline)",
+#                       "Balanced crystalloid") |
+#       (fluid_type == "Aggregate intake (non-ICU)" &
+#          grepl("crystalloid",
+#                label,
+#                ignore.case = TRUE))]
 
-### Aggregated crystalloid intake ----------------------------------------------
-## Inspect aggregated crystalloid intake
-crystalloid_events_aggregated <- all_inputevents %>% 
+# ### Aggregated crystalloid intake
+# ## Inspect aggregated crystalloid intake
+# crystalloid_events_aggregated <- all_inputevents %>% 
+#   ## only patients in sepsis base cohort
+#   .[stay_id %in% sepsis_base_cohort_data$stay_id] %>%
+#   ## aggregated crystalloid intake item IDs
+#   .[itemid %in% crystalloid_itemids[
+#     resuscitation_role == "aggregated crystalloid"]$itemid] %>% 
+#   merge(.,
+#         crystalloid_itemids[, .(itemid,
+#                                 label)],
+#         by = "itemid",
+#         all.x = TRUE,
+#         all.y = FALSE) %>% 
+#   ## unify units (mL and L)
+#   .[, amount_ml := fcase(
+#     
+#     amountuom == "mL",
+#     amount,
+#     
+#     amountuom == "L",
+#     amount * 1000,
+#     
+#     default = NA_real_)] %>% 
+#   .[, .(subject_id,
+#         hadm_id,
+#         stay_id,
+#         starttime,
+#         endtime,
+#         storetime,
+#         itemid,
+#         label,
+#         amount_ml,
+#         ordercategoryname,
+#         ordercategorydescription,
+#         patientweight)] %>% 
+#   unique() %>% 
+#   merge(.,
+#         sepsis_base_cohort_data[, .(subject_id,
+#                                     hadm_id,
+#                                     stay_id,
+#                                     suspected_infection_time,
+#                                     icu_intime,
+#                                     icu_outtime,
+#                                     fluid_resuscitation_start,
+#                                     fluid_resuscitation_end)],
+#         by = c("subject_id",
+#                "hadm_id",
+#                "stay_id"),
+#         all.x = TRUE,
+#         all.y = FALSE) %>% 
+#   .[, fluid_duration := 
+#       lubridate::time_length(
+#         endtime-
+#           starttime,
+#         "mins")] %>% 
+#   .[, time_to_sepsis :=
+#       lubridate::time_length(
+#         starttime -
+#           suspected_infection_time,
+#         "hours")]
+# 
+# ## Confirm that all crystalloid stoptimes are within 1 min of crystalloid starttime
+# ## Entries display bolus fluid administration over a short time span
+# stopifnot(nrow(crystalloid_events_aggregated[fluid_duration > 1]) == 0)
+# 
+# ## Analyze distribution of time difference between 
+# ## crystalloid administration and sepsis onset
+# summary(crystalloid_events_aggregated$time_to_sepsis)
+# 
+# quantile(crystalloid_events_aggregated$time_to_sepsis,
+#          probs = c(0.01, 
+#                    0.1, 
+#                    0.5, 
+#                    0.75,
+#                    0.8,
+#                    0.85,
+#                    0.9, 
+#                    0.95, 
+#                    0.99))
+# 
+# ## Restrict to relevant sepsis episode
+# crystalloid_resuscitation_aggregated <- 
+#   crystalloid_events_aggregated %>% 
+#   .[starttime >= suspected_infection_time - hours(24) &
+#       starttime <= suspected_infection_time + hours(24)] %>% 
+#   .[, crystalloid_target := patientweight * 30] %>% 
+#   .[, total_crystalloid_reveived_over_30 := amount_ml >= crystalloid_target]
+
+
+## Non-aggregated Crystalloid intake
+## Verify crystalloid bolus definition
+all_inputevents %>% 
   ## only patients in sepsis base cohort
-  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>%
-  ## aggregated crystalloid intake item IDs
-  .[itemid %in% crystalloid_itemids[
-    resuscitation_role == "aggregated crystalloid"]$itemid] %>% 
-  merge(.,
-        crystalloid_itemids[, .(itemid,
-                                label)],
-        by = "itemid",
-        all.x = TRUE,
-        all.y = FALSE) %>% 
-  ## unify units (mL and L)
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  ## filter to crystalloid administrations
+  .[itemid %in% input_fluid_classification[resuscitation_role == "crystalloid"]$itemid] %>% 
+  ## Unify fluid amount units
   .[, amount_ml := fcase(
     
     amountuom == "mL",
@@ -1601,147 +1108,49 @@ crystalloid_events_aggregated <- all_inputevents %>%
     amountuom == "L",
     amount * 1000,
     
-    default = NA_real_)] %>% 
-  .[, .(subject_id,
-        hadm_id,
-        stay_id,
-        starttime,
-        endtime,
-        storetime,
-        itemid,
-        label,
-        amount_ml,
-        ordercategoryname,
-        ordercategorydescription,
-        patientweight)] %>% 
-  unique() %>% 
+    default = NA)] %>% 
+  .[, .(.N, total_ml = sum(amount_ml, 
+                           na.rm = TRUE)),
+    by = .(ordercategoryname,
+           ordercomponenttypedescription, 
+           ordercategorydescription)] %>% 
+  .[order(-total_ml)]
+
+
+## Crystalloids administered within fist 3h
+crystalloid_events <- all_inputevents %>% 
+  ## only patients in sepsis base cohort
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  ## filter to crystalloid administrations
+  .[itemid %in% input_fluid_classification[resuscitation_role == "crystalloid"]$itemid] %>% 
+  ## Unify fluid amount units
+  .[, amount_ml := fcase(
+    
+    amountuom == "mL",
+    amount,
+    
+    amountuom == "L",
+    amount * 1000,
+    
+    default = NA)] %>% 
   merge(.,
         sepsis_base_cohort_data[, .(subject_id,
                                     hadm_id,
                                     stay_id,
-                                    suspected_infection_time,
-                                    icu_intime,
-                                    icu_outtime,
-                                    fluid_resuscitation_start,
-                                    fluid_resuscitation_end)],
+                                    hypoperfusion_proxy,
+                                    hypoperfusion_onset_time,
+                                    suspected_infection_time)],
         by = c("subject_id",
                "hadm_id",
                "stay_id"),
-        all.x = TRUE,
-        all.y = FALSE) %>% 
-  .[, fluid_duration := 
-      lubridate::time_length(
-        endtime-
-          starttime,
-        "mins")] %>% 
-  .[, time_to_sepsis :=
-      lubridate::time_length(
-        starttime -
-          suspected_infection_time,
-        "hours")]
-
-## Confirm that all crystalloid stoptimes are within 1 min of crystalloid starttime
-## Entries display bolus fluid administration over a short time span
-stopifnot(nrow(crystalloid_events_aggregated[fluid_duration > 1]) == 0)
-
-## Analyze distribution of time difference between 
-## crystalloid administration and sepsis onset
-summary(crystalloid_events_aggregated$time_to_sepsis)
-
-quantile(crystalloid_events_aggregated$time_to_sepsis,
-         probs = c(0.01, 
-                   0.1, 
-                   0.5, 
-                   0.75,
-                   0.8,
-                   0.85,
-                   0.9, 
-                   0.95, 
-                   0.99))
-
-## Restrict to relevant sepsis episode
-crystalloid_resuscitation_aggregated <- 
-  crystalloid_events_aggregated %>% 
-  .[starttime >= suspected_infection_time - hours(24) &
-      starttime <= suspected_infection_time + hours(24)] %>% 
-  .[, crystalloid_target := patientweight * 30] %>% 
-  .[, total_crystalloid_reveived_over_30 := amount_ml >= crystalloid_target]
-
-
-### Crystalloid intake ---------------------------------------------------------
-crystalloid_events <- all_inputevents %>% 
-  ## only patients in sepsis base cohort
-  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
-  .[itemid %in% crystalloid_itemids[resuscitation_role == "crystalloid"]$itemid] %>% 
-  merge(.,
-        crystalloid_itemids[, .(itemid,
-                                label)],
-        by = "itemid",
-        all.x = TRUE,
-        all.y = FALSE)
-
-## Determine units for resuscitation fluid administration amount
-crystalloid_events[, unique(amountuom)]
-
-## Determine units for resuscitation fluid administration rate
-crystalloid_events[, unique(rateuom)]
-
-## Unify fluid amount units
-crystalloid_events <- crystalloid_events %>% 
-  copy() %>% 
-  .[, amount_ml := fcase(
-    
-    amountuom == "mL",
-    amount,
-    
-    amountuom == "L",
-    amount * 1000,
-    
-    default = NA)]
-
-## Verify crystalloid bolus definition
-crystalloid_events[, .(.N, total_ml = sum(amount_ml, 
-                                          na.rm = TRUE)),
-                   by = .(ordercategoryname,
-                          ordercomponenttypedescription, 
-                          ordercategorydescription)] %>% 
-  .[order(-total_ml)]
-
-
-## Define total fluid resuscitation volume per patient
-total_crystalloid_resuscitation <- crystalloid_events %>% 
-  .[, .(subject_id,
-        hadm_id,
-        stay_id,
-        label,
-        starttime,
-        endtime,
-        amount_ml,
-        rate,
-        rateuom,
-        ordercategoryname,
-        secondaryordercategoryname,
-        ordercomponenttypedescription,
-        ordercategorydescription,
-        patientweight)] %>% 
-  merge(.,
-        sepsis_base_cohort_data[hypoperfusion_proxy == TRUE,
-                                .(subject_id,
-                                  hadm_id,
-                                  stay_id,
-                                  hypoperfusion_onset_time)],
-
-        by = c("subject_id",
-               "hadm_id",
-               "stay_id"),
-        all = FALSE) %>%
+        all = FALSE) %>% 
   ## hypoperfusion-anchored resuscitation window bounds (defined once, used everywhere)
   .[, resus_start := hypoperfusion_onset_time - lubridate::hours(1)] %>%
   .[, resus_end   := hypoperfusion_onset_time + lubridate::hours(3)] %>%
   ## a crystalloid event counts if it OVERLAPS the window
   .[, fluid_resuscitation_window :=
       starttime < resus_end &
-      endtime   > resus_start] %>%
+      endtime   > resus_start] %>% 
   ## clip each overlapping event to the window
   .[fluid_resuscitation_window == TRUE,
     `:=` (overlap_start = pmax(starttime, resus_start),
@@ -1762,62 +1171,112 @@ total_crystalloid_resuscitation <- crystalloid_events %>%
     amount_ml,
     
     default = NA_real_)] %>% 
-  ## Restrict to main order crystalloid administration
-  .[ordercategoryname %in% c("02-Fluids (Crystalloids)",
-                             "03-IV Fluid Bolus") &
+  .[, counted_as_resuscitation := ordercategoryname %in% c("02-Fluids (Crystalloids)",
+                                                           "03-IV Fluid Bolus") &
       ordercategorydescription %in% c("Continuous IV",
-                                      "Bolus")] %>% 
-  ## PRIMARY volume: all crystalloid given as fluid (Bolus + Continuous IV)
-  .[, crystalloid_ml_3h :=
-      sum(fluid_ml_3h, na.rm = TRUE),
-    by = .(subject_id, hadm_id, stay_id)] %>% 
-  ## SENSITIVITY volume: resuscitation boluses only
-  .[, crystalloid_ml_3h_bolus :=
-      sum(fifelse(ordercategoryname == "03-IV Fluid Bolus",
-                  fluid_ml_3h,
-                  NA_real_),
+                                      "Bolus")]
+
+
+## Total crystalloid intake in first 3h
+total_crystalloid_3h <- crystalloid_events %>% 
+  copy() %>% 
+  .[, total_crystalloid_3h := 
+      sum(fluid_ml_3h,
           na.rm = TRUE),
-    by = .(subject_id, hadm_id, stay_id)] %>%
+    by = .(subject_id,
+           hadm_id,
+           stay_id)] %>% 
   .[, .(subject_id,
         hadm_id,
         stay_id,
-        resus_start,
-        resus_end,
-        crystalloid_ml_3h,
-        crystalloid_ml_3h_bolus)] %>%
+        total_crystalloid_3h)] %>% 
   unique()
 
-## SENSITIVITY volume table: identical crystalloid accounting as the primary,
+
+## Resuscitation crystalloid intake first 3h
+resus_crystalloid_3h <- crystalloid_events %>% 
+  copy() %>% 
+  .[counted_as_resuscitation == TRUE] %>% 
+  .[, resus_crystalloid_3h := 
+      sum(fluid_ml_3h,
+          na.rm = TRUE),
+    by = .(subject_id,
+           hadm_id,
+           stay_id)] %>% 
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        resus_crystalloid_3h)] %>% 
+  unique()
+
+
+## Concurrent crystalloid intake first 3h
+concurrent_crystalloid_3h <- crystalloid_events %>% 
+  copy() %>% 
+  .[counted_as_resuscitation == FALSE] %>% 
+  .[, concurrent_crystalloid_3h := 
+      sum(fluid_ml_3h,
+          na.rm = TRUE),
+    by = .(subject_id,
+           hadm_id,
+           stay_id)] %>% 
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        concurrent_crystalloid_3h)] %>% 
+  unique()
+
+
+## Strictly bolus crystalloid intake first 3h
+bolus_crystalloid_3h <- crystalloid_events %>% 
+  copy() %>% 
+  .[ordercategorydescription %in% c("Continuous IV",
+                                    "Bolus") &
+      ordercategoryname == "03-IV Fluid Bolus"] %>% 
+  .[, bolus_crystalloid_3h := 
+      sum(fluid_ml_3h,
+          na.rm = TRUE),
+    by = .(subject_id,
+           hadm_id,
+           stay_id)] %>% 
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        bolus_crystalloid_3h)] %>% 
+  unique()
+
+
+## Combine into one data table
+crystalloid_3h <- merge(
+  total_crystalloid_3h,
+  resus_crystalloid_3h,
+  by = c("subject_id",
+         "hadm_id",
+         "stay_id"),
+  all = TRUE) %>% 
+  merge(.,
+        concurrent_crystalloid_3h,
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id"),
+        all = TRUE) %>% 
+  merge(.,
+        bolus_crystalloid_3h,
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id"),
+        all = TRUE)
+
+
+## Sensitivity volume table: identical crystalloid accounting as the primary,
 ## but the [-1h, +3h] window is anchored to SEPSIS onset (suspected_infection_time)
 ## rather than hypoperfusion/shock onset. This matches the anchor used by the
 ## guideline's cited evidence ("30 mL/kg within 3 h of sepsis onset") and, for the
 ## shock stratum, moves the window earlier (often pre-ICU), quantifying how much
 ## the anchor choice alone drives the measured adherence.
-total_crystalloid_resuscitation_sepsisonset <- crystalloid_events %>%
-  .[, .(subject_id,
-        hadm_id,
-        stay_id,
-        label,
-        starttime,
-        endtime,
-        amount_ml,
-        rate,
-        rateuom,
-        ordercategoryname,
-        secondaryordercategoryname,
-        ordercomponenttypedescription,
-        ordercategorydescription,
-        patientweight)] %>%
-  merge(.,
-        sepsis_base_cohort_data[hypoperfusion_proxy == TRUE,
-                                .(subject_id,
-                                  hadm_id,
-                                  stay_id,
-                                  suspected_infection_time)],
-        by = c("subject_id",
-               "hadm_id",
-               "stay_id"),
-        all = FALSE) %>%
+crystalloid_3h_sepsisonset <- crystalloid_events %>%
+  .[hypoperfusion_proxy == TRUE] %>% 
+  ## resuscitation window anchored on sepsis onset
   .[, resus_start := suspected_infection_time - lubridate::hours(1)] %>%
   .[, resus_end   := suspected_infection_time + lubridate::hours(3)] %>%
   .[, fluid_resuscitation_window :=
@@ -1918,26 +1377,26 @@ rec_10 <- sepsis_base_cohort_data %>%
                                           weight_kg_for_fluids)] %>%
   .[, crystalloid_target_adjbw := 30 * weight_kg_target_adjbw] %>%
   merge(.,
-        total_crystalloid_resuscitation,
+        crystalloid_3h,
         by = c("subject_id",
                "hadm_id",
                "stay_id"),
         all.x = TRUE,
-        all.y = FALSE) %>%
+        all.y = FALSE) %>% 
   ## coalesce missing crystalloid entries
   .[, crystalloid_ml_3h := fifelse(
-    !is.na(crystalloid_ml_3h),
-    crystalloid_ml_3h,
+    !is.na(resus_crystalloid_3h),
+    resus_crystalloid_3h,
     fifelse(
-      is.na(crystalloid_ml_3h) &
+      is.na(resus_crystalloid_3h) &
         hypoperfusion_proxy == TRUE,
       0,
       NA_real_))] %>%
   .[, crystalloid_ml_3h_bolus := fifelse(
-    !is.na(crystalloid_ml_3h_bolus),
-    crystalloid_ml_3h_bolus,
+    !is.na(bolus_crystalloid_3h),
+    bolus_crystalloid_3h,
     fifelse(
-      is.na(crystalloid_ml_3h_bolus) &
+      is.na(bolus_crystalloid_3h) &
         hypoperfusion_proxy == TRUE,
       0,
       NA_real_))] %>%
@@ -1988,7 +1447,7 @@ rec_10 <- sepsis_base_cohort_data %>%
   ## SENSITIVITY adherence: window anchored to SEPSIS onset instead of
   ## hypoperfusion/shock onset (matches the guideline's cited-evidence anchor)
   merge(.,
-        total_crystalloid_resuscitation_sepsisonset,
+        crystalloid_3h_sepsisonset,
         by = c("subject_id",
                "hadm_id",
                "stay_id"),
@@ -2025,7 +1484,63 @@ rec_10 <- sepsis_base_cohort_data %>%
       is.na(hypoperfusion_proxy),
     "no sepsis-induced hypoperfusion or unknown",
 
-    default = NA_character_)]
+    default = NA_character_)] %>% 
+  merge(.,
+        unique(sepsis_base_cohort_data[, .(subject_id,
+                                           hadm_id,
+                                           stay_id,
+                                           septic_shock_proxy)]),
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id"),
+        all.x = TRUE,
+        all.y = FALSE) %>%
+  ## causal treatment: ICU-observable (septic-shock) stratum only. The lactate-only
+  ## stratum has its resuscitation window largely before ICU admission, where
+  ## inputevents records no fluid, so its non-adherence is a one-directional
+  ## observability artefact. Those stays are set NA and excluded from the IRM.
+  .[, rec_10_crystalloid_within_3h_causal := fifelse(
+    septic_shock_proxy == TRUE,
+    rec_10_crystalloid_within_3h,
+    NA)]
+
+
+
+# Check resulting adherence rates
+## PRIMARY: >= 30 mL/kg crystalloid (Bolus + Continuous IV), actual body weight
+proportions(table(rec_10$rec_10_crystalloid_within_3h))
+
+## adjusted body weight target (BMI > 30, guideline Table 4)
+proportions(table(rec_10$rec_10_crystalloid_within_3h_adjbw))
+
+## resuscitation boluses only
+proportions(table(rec_10$rec_10_crystalloid_within_3h_bolus))
+
+## resuscitation boluses only, adjusted body weight target
+proportions(table(rec_10$rec_10_crystalloid_within_3h_bolus_adjbw))
+
+## window anchored to sepsis onset instead of hypoperfusion/shock onset
+proportions(table(rec_10$rec_10_crystalloid_within_3h_sepsisonset))
+
+## eligibility breakdown
+proportions(table(rec_10$rec_10_eligibility))
+
+## causal ml adherence rate
+proportions(table(rec_10$rec_10_crystalloid_within_3h_causal))
+
+## Fluid volumes among eligible (sepsis-induced hypoperfusion) patients
+## resuscitation crystalloid delivered in the window (mL)
+summary(rec_10[hypoperfusion_proxy == TRUE]$crystalloid_ml_3h)
+
+## resuscitation boluses only (mL)
+summary(rec_10[hypoperfusion_proxy == TRUE]$crystalloid_ml_3h_bolus)
+
+## total crystalloid in the window, any order category (mL)
+summary(rec_10[hypoperfusion_proxy == TRUE]$total_crystalloid_3h)
+
+## concurrent (non-resuscitation) crystalloid in the window (mL)
+summary(rec_10[hypoperfusion_proxy == TRUE]$concurrent_crystalloid_3h)
+
 
 ## 12 RECOMMENDATION -----------------------------------------------------------
 ## Recommendation 12 (septic shock): start vasopressors peripherally to restore
@@ -2043,18 +1558,6 @@ rec_10 <- sepsis_base_cohort_data %>%
 ## "midline catheters were not considered" -- and non-venous access are excluded).
 rec12_label <- ssc_recommendations %>%
   .[rec_num == 12, rec_label]
-
-# ## Peripheral IV lines
-# peripheral_itemids <- d_items %>% 
-#   copy() %>% 
-#   .[linksto == "procedureevents" &
-#       category ==  "Access Lines - Peripheral"]
-# 
-# peripheral_events <- all_procedureevents %>% 
-#   copy() %>% 
-#   ## only patients in sepsis base cohort
-#   .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
-#   .[itemid %in% peripheral_itemids$itemid]
 
 ## Central venous access lines
 cvc_itemids <- d_items %>% 
@@ -2117,42 +1620,47 @@ cvc_events <- all_procedureevents %>%
                "stay_id"),
         all = FALSE)
 
-## Was a central line in place at septic shock onset?
-cvc_at_shock <- cvc_events %>% 
-  ## only count lines actually in place for sepsis
-  ## not e.g. placed immediately before septic shock onset
-  ## which is arguably the "placed for vasopressor" delay scenario
-  .[cvc_start <= suspected_infection_time &
-      ## placed before the sepsis episode and 
-      ## still in place at septic shock onset
-      cvc_end >= septic_shock_onset_time,
-    .(cvc_at_shock = TRUE),
+## Was a central line in place CONTINUOUSLY from shock onset through vaso start?
+## Placed before shock onset (genuinely pre-existing, any prior indication) AND
+## still in place when vasopressors began, so it was actually available for the
+## vaso and no delay to secure access could have occurred. Requiring cvc_end to
+## reach shock_vaso_start (not just shock onset) excludes lines removed before
+## vaso was started.
+cvc_in_place_at_vaso <- cvc_events %>%
+  .[cvc_start <= septic_shock_onset_time &
+      cvc_end   >= shock_vaso_start,
+    .(cvc_in_place_at_vaso = TRUE),
     by = .(subject_id,
            hadm_id,
            stay_id)]
 
-## First central line placement 
-first_cvc <- cvc_events %>% 
+## First central line placement
+first_cvc <- cvc_events %>%
   .[, .(first_cvc_time = min(cvc_start,
                              na.rm = TRUE)),
     by = .(subject_id,
            hadm_id,
            stay_id)]
 
-rec_12 <- sepsis_base_cohort_data %>% 
+## Proximity within which a line placement plausibly gated vaso initiation.
+## A vasopressor starting more than this long after the line is treated as
+## unrelated to securing access (primary = 2h; 1/3/4h as sensitivity).
+central_delay_window <- 2
+
+rec_12 <- sepsis_base_cohort_data %>%
   .[, .(subject_id,
         hadm_id,
         stay_id,
         septic_shock_proxy,
         septic_shock_onset_time,
-        shock_vaso_start)] %>% 
+        shock_vaso_start)] %>%
   merge(.,
-        cvc_at_shock,
+        cvc_in_place_at_vaso,
         by = c("subject_id",
                "hadm_id",
                "stay_id"),
         all.x = TRUE,
-        all.y = FALSE) %>% 
+        all.y = FALSE) %>%
   merge(.,
         first_cvc,
         by = c("subject_id",
@@ -2160,23 +1668,92 @@ rec_12 <- sepsis_base_cohort_data %>%
                "stay_id"),
         all.x = TRUE,
         all.y = FALSE) %>%
-  ## Coalacesce NA values
-  .[, cvc_at_shock := fcoalesce(cvc_at_shock,
-                                FALSE)] %>% 
+  .[, cvc_in_place_at_vaso := fcoalesce(cvc_in_place_at_vaso,
+                                        FALSE)] %>%
+  .[, time_to_vaso_h :=
+      lubridate::time_length(shock_vaso_start -
+                               septic_shock_onset_time,
+                             "hours")]
+  .[, vaso_after_cvc_h :=
+      lubridate::time_length(shock_vaso_start -
+                               first_cvc_time,
+                             "hours")] %>%
+  .[, vaso_before_line :=
+      is.na(first_cvc_time) |
+      shock_vaso_start <= first_cvc_time] %>%
+  ## "waited for access": no usable pre-existing line, a line is placed AFTER
+  ## shock onset, and vaso begins only after that line
+  .[, central_delay_candidate :=
+      cvc_in_place_at_vaso == FALSE &
+      vaso_before_line == FALSE &
+      first_cvc_time > septic_shock_onset_time &
+      shock_vaso_start >= first_cvc_time] %>%
+  ## PRIMARY adherence (proximity = central_delay_window hours)
   .[, rec_12_vaso_without_central_delay := fcase(
     
     septic_shock_proxy != TRUE |
       is.na(shock_vaso_start),
     NA,
     
-    cvc_at_shock == TRUE,
+    cvc_in_place_at_vaso == TRUE,
     TRUE,
     
-    is.na(first_cvc_time) |
-      shock_vaso_start < first_cvc_time,
+    vaso_before_line == TRUE,
     TRUE,
     
-    default = FALSE)] %>% 
+    central_delay_candidate == TRUE &
+      vaso_after_cvc_h <= central_delay_window,
+    FALSE,
+    
+    default = TRUE)] %>%
+  ## SENSITIVITY: proximity window = 1h
+  .[, rec_12_vaso_without_central_delay_1h := fcase(
+    
+    septic_shock_proxy != TRUE |
+      is.na(shock_vaso_start),
+    NA,
+    
+    cvc_in_place_at_vaso == TRUE |
+      vaso_before_line == TRUE,
+    TRUE,
+    
+    central_delay_candidate == TRUE &
+      vaso_after_cvc_h <= 1,
+    FALSE,
+    
+    default = TRUE)] %>%
+  ## SENSITIVITY: proximity window = 3h
+  .[, rec_12_vaso_without_central_delay_3h := fcase(
+    
+    septic_shock_proxy != TRUE |
+      is.na(shock_vaso_start),
+    NA,
+    
+    cvc_in_place_at_vaso == TRUE |
+      vaso_before_line == TRUE,
+    TRUE,
+    
+    central_delay_candidate == TRUE &
+      vaso_after_cvc_h <= 3,
+    FALSE,
+    
+    default = TRUE)] %>%
+  ## SENSITIVITY: proximity window = 4h
+  .[, rec_12_vaso_without_central_delay_4h := fcase(
+    
+    septic_shock_proxy != TRUE |
+      is.na(shock_vaso_start),
+    NA,
+    
+    cvc_in_place_at_vaso == TRUE |
+      vaso_before_line == TRUE,
+    TRUE,
+    
+    central_delay_candidate == TRUE &
+      vaso_after_cvc_h <= 4,
+    FALSE,
+    
+    default = TRUE)] %>%
   .[, rec_12_eligibility := fcase(
     
     !is.na(rec_12_vaso_without_central_delay),
@@ -2187,6 +1764,7 @@ rec_12 <- sepsis_base_cohort_data %>%
     "no septic shock or unknown",
     
     default = NA_character_)]
+
 
 ## 13 RECOMMENDATION -----------------------------------------------------------
 rec13_label <- ssc_recommendations %>%
@@ -2243,8 +1821,6 @@ rec_13 <- sepsis_base_cohort_data %>%
         septic_shock_proxy,
         septic_shock_onset_time)] %>%
   unique() %>%
-  .[, map_window_start := septic_shock_onset_time - lubridate::hours(1)] %>%
-  .[, map_window_end   := septic_shock_onset_time + lubridate::hours(3)] %>%
   merge(.,
         map_events,
         by = c("subject_id",
@@ -2252,74 +1828,126 @@ rec_13 <- sepsis_base_cohort_data %>%
                "stay_id"),
         all.x = TRUE,
         all.y = FALSE) %>%
-  ## MAP values within the initial [-1h, +3h] septic-shock window
-  .[, map_window := charttime >= map_window_start &
-      charttime <= map_window_end] %>%
-  .[map_window == TRUE,
-    median_map := median(valuenum, na.rm = TRUE),
+  ## one row per stay: median MAP over each candidate window
+  .[, .(septic_shock_proxy      = septic_shock_proxy[1],
+        septic_shock_onset_time = septic_shock_onset_time[1],
+        
+        ## PRIMARY window [-1h, +3h]
+        median_map =
+          median(valuenum[charttime >= septic_shock_onset_time - lubridate::hours(1) &
+                            charttime <= septic_shock_onset_time + lubridate::hours(3)],
+                 na.rm = TRUE),
+        
+        ## SENSITIVITY window [0h, +6h]
+        median_map_0_6h =
+          median(valuenum[charttime >= septic_shock_onset_time &
+                            charttime <= septic_shock_onset_time + lubridate::hours(6)],
+                 na.rm = TRUE),
+        
+        ## SENSITIVITY window [0h, +24h]
+        median_map_0_24h =
+          median(valuenum[charttime >= septic_shock_onset_time &
+                            charttime <= septic_shock_onset_time + lubridate::hours(24)],
+                 na.rm = TRUE)),
     by = .(subject_id,
            hadm_id,
            stay_id)] %>%
-  ## propagate the per-stay median to all rows of the stay
-  .[, median_map := nafill(median_map,
-                           type = "locf"),
-    by = .(subject_id,
-           hadm_id,
-           stay_id)] %>%
-  .[, median_map := nafill(median_map,
-                           type = "nocb"),
-    by = .(subject_id,
-           hadm_id,
-           stay_id)] %>%
-  .[, .(subject_id,
-        hadm_id,
-        stay_id,
-        septic_shock_proxy,
-        septic_shock_onset_time,
-        median_map)] %>%
-  unique() %>%
-  .[septic_shock_proxy == TRUE, rec_13_map_target_65 :=
+  ## PRIMARY adherence: median MAP in the 60-70 mmHg band
+  .[septic_shock_proxy == TRUE,
+    rec_13_map_target_65 :=
       !is.na(median_map) &
       median_map >= 60 &
       median_map <= 70] %>%
+  ## SENSITIVITY adherence: [0h, +6h] window
+  .[septic_shock_proxy == TRUE,
+    rec_13_map_target_65_0_6h :=
+      !is.na(median_map_0_6h) &
+      median_map_0_6h >= 60 &
+      median_map_0_6h <= 70] %>%
+  ## SENSITIVITY adherence: [0h, +24h] window
+  .[septic_shock_proxy == TRUE,
+    rec_13_map_target_65_0_24h :=
+      !is.na(median_map_0_24h) &
+      median_map_0_24h >= 60 &
+      median_map_0_24h <= 70] %>%
   .[, rec_13_eligibility := fcase(
-
+    
     !is.na(rec_13_map_target_65),
     "eligible",
+    
+    septic_shock_proxy == FALSE |
+      is.na(septic_shock_proxy),
+    "no septic shock or unknown",
+    
+    default = NA_character_)] %>% 
+  ## direction of MAP relative to the target band (eligible shock patients)
+  .[septic_shock_proxy == TRUE &
+      !is.na(median_map),
+    rec_13_map_band := fcase(
+      
+      median_map < 60,
+      "below 60 (under target)",
+      
+      median_map <= 70,
+      "60-70 (at target)",
+      
+      default = "above 70 (higher target)")]
 
-    septic_shock_proxy == FALSE | is.na(septic_shock_proxy),
-    "no septic shock or unknown")]
+## Check resulting adherence rates
+## PRIMARY: median MAP in 60-70 mmHg over [-1h, +3h] of shock onset
+proportions(table(rec_13$rec_13_map_target_65))
+
+## window sensitivity
+proportions(table(rec_13$rec_13_map_target_65_0_6h))
+proportions(table(rec_13$rec_13_map_target_65_0_24h))
+
+## eligibility breakdown
+proportions(table(rec_13$rec_13_eligibility))
+
+proportions(table(rec_13$rec_13_map_band))
+
 
 ## 15 RECOMMENDATION -----------------------------------------------------------
 rec15_label <- ssc_recommendations %>% 
   .[rec_num == 15, rec_label]
 
-## Time between sepsis onset and ICU admission <= 6 hours.
-## Primary measure (rec_15_icu_6h) matches the reference bundle exactly:
-## icu_intime - suspected_infection_time <= 6h, counting in-ICU onset (negative
-## difference) as adherent. Because ~45% of the cohort develops sepsis AFTER ICU
-## admission -- for whom a 6h admission target is moot -- a second, intent-faithful
-## variant (rec_15_icu_6h_preicu) restricts to patients whose onset is at or before
-## ICU admission and marks in-ICU-onset stays non-evaluable (NA).
 rec_15 <- sepsis_base_cohort_data %>%
   copy() %>%
   .[, hours_to_icu :=
       lubridate::time_length(icu_intime - suspected_infection_time,
                              unit = "hours")] %>%
-  .[, rec_15_icu_6h := hours_to_icu <= 6] %>%
-  ## intent-faithful: only patients with onset at/before ICU admission
-  ## (in-ICU onset -> recommendation does not apply -> NA)
-  .[, rec_15_icu_6h_preicu := fifelse(
-    hours_to_icu >= 0,
+  ## adherent if ICU admission follows an onset at or before admission by <= 6h;
+  ## in-ICU onset (negative interval) -> recommendation not applicable -> NA
+  .[, rec_15_icu_6h_causal := fcase(
+    
+    is.na(hours_to_icu),
+    NA,
+    
+    hours_to_icu < 0,
+    NA,
+    
     hours_to_icu <= 6,
-    NA)] %>%
+    TRUE,
+    
+    default = FALSE)] %>%
   .[, rec_15_eligibility := fcase(
+    
+    is.na(hours_to_icu),
+    NA_character_,
+    
+    hours_to_icu < 0,
+    "sepsis onset after ICU admission (not applicable)",
+    
+    default = "eligible")]
 
-    !is.na(rec_15_icu_6h),
-    "eligible",
+## Check resulting adherence rate
+proportions(table(rec_15$rec_15_icu_6h_causal))
 
-    default = NA_character_
-  )]
+## eligibility breakdown (denominator = "eligible")
+proportions(table(rec_15$rec_15_eligibility))
+
+## hours from onset to ICU admission, among applicable patients
+summary(rec_15[rec_15_eligibility == "eligible"]$hours_to_icu)
 
 
 ## 16 & 17 RECOMMENDATION -----------------------------------------------------------
@@ -2400,15 +2028,23 @@ rec_16 <- antimicrobial_timing %>%
   .[septic_shock_proxy == TRUE,
     rec_16_antimicrobial_within_1h := !is.na(time_to_antimicrobial) &
       time_to_antimicrobial <= 1] %>%
+  ## SENSITIVITY: 3h, one-sided
+  .[septic_shock_proxy == TRUE,
+    rec_16_antimicrobial_within_3h := !is.na(time_to_antimicrobial) &
+      time_to_antimicrobial <= 3] %>%
   ## SENSITIVITY: strict two-sided [-1h, +1h]
   .[septic_shock_proxy == TRUE,
     rec_16_antimicrobial_within_1h_strict := !is.na(time_to_antimicrobial) &
       time_to_antimicrobial >= -1 &
       time_to_antimicrobial <= 1] %>%
-  ## SENSITIVITY: 3h, one-sided (NOT rec 18)
+  ## causal-analysis treatment: culture-anchored stays only. Antibiotic-anchored
+  ## recognition is circular (adherence ~1 by construction), so it is set NA and
+  ## excluded from the IRM to preserve a genuine exposure and overlap.
   .[septic_shock_proxy == TRUE,
-    rec_16_antimicrobial_within_3h := !is.na(time_to_antimicrobial) &
-      time_to_antimicrobial <= 3] %>%
+    rec_16_antimicrobial_within_1h_causal := fifelse(
+      onset_anchor == "culture-anchored",
+      rec_16_antimicrobial_within_1h,
+      NA)] %>% 
   .[, rec_16_eligibility := fcase(
 
     !is.na(rec_16_antimicrobial_within_1h),
@@ -2418,6 +2054,19 @@ rec_16 <- antimicrobial_timing %>%
     "sepsis without shock (rec 17)",
 
     default = NA_character_)]
+
+
+proportions(table(rec_16$rec_16_antimicrobial_within_1h))
+
+proportions(table(rec_16$rec_16_antimicrobial_within_3h))
+
+proportions(table(rec_16$rec_16_antimicrobial_within_1h_strict))
+
+## adherence by onset anchor (isolates the culture -> antibiotic circularity)
+rec_16[septic_shock_proxy == TRUE,
+       .(within_1h = mean(rec_16_antimicrobial_within_1h, na.rm = TRUE),
+         n        = .N),
+       by = onset_anchor]
 
 ### 17 Recommendation ---------------------------------------------------------- 
 ## probable/definite sepsis WITHOUT shock:
@@ -2431,15 +2080,23 @@ rec_17 <- antimicrobial_timing %>%
   .[septic_shock_proxy == FALSE,
     rec_17_antimicrobial_within_1h := !is.na(time_to_antimicrobial) &
       time_to_antimicrobial <= 1] %>%
+  ## SENSITIVITY: 3h, one-sided (NOT rec 18)
+  .[septic_shock_proxy == FALSE,
+    rec_17_antimicrobial_within_3h := !is.na(time_to_antimicrobial) &
+      time_to_antimicrobial <= 3] %>%
   ## SENSITIVITY: strict two-sided [-1h, +1h]
   .[septic_shock_proxy == FALSE,
     rec_17_antimicrobial_within_1h_strict := !is.na(time_to_antimicrobial) &
       time_to_antimicrobial >= -1 &
       time_to_antimicrobial <= 1] %>%
-  ## SENSITIVITY: 3h, one-sided (NOT rec 18)
-  .[septic_shock_proxy == FALSE,
-    rec_17_antimicrobial_within_3h := !is.na(time_to_antimicrobial) &
-      time_to_antimicrobial <= 3] %>%
+  ## causal-analysis treatment: culture-anchored stays only. Antibiotic-anchored
+  ## recognition is circular (adherence ~1 by construction), so it is set NA and
+  ## excluded from the IRM to preserve a genuine exposure and overlap.
+  .[septic_shock_proxy == TRUE,
+    rec_17_antimicrobial_within_1h_causal := fifelse(
+      onset_anchor == "culture-anchored",
+      rec_17_antimicrobial_within_1h,
+      NA)] %>% 
   .[, rec_17_eligibility := fcase(
 
     !is.na(rec_17_antimicrobial_within_1h),
@@ -2447,8 +2104,44 @@ rec_17 <- antimicrobial_timing %>%
 
     septic_shock_proxy == TRUE,
     "septic shock (rec 16)",
-
+    
     default = NA_character_)]
+
+
+proportions(table(rec_17$rec_17_antimicrobial_within_1h))
+
+proportions(table(rec_17$rec_17_antimicrobial_within_3h))
+
+proportions(table(rec_17$rec_17_antimicrobial_within_1h_strict))
+
+## adherence by onset anchor (isolates the culture -> antibiotic circularity)
+rec_17[septic_shock_proxy == FALSE,
+       .(within_1h = mean(rec_17_antimicrobial_within_1h, na.rm = TRUE),
+         n        = .N),
+       by = onset_anchor]
+
+
+## Some figures for the thesis
+## culture-anchored median recognition-to-antimicrobial interval (hours)
+antimicrobial_timing[onset_anchor == "culture-anchored" &
+                       !is.na(time_to_antimicrobial),
+                     median(time_to_antimicrobial)]
+
+antimicrobial_timing[!is.na(time_to_antimicrobial),
+                     .(median_h = median(time_to_antimicrobial),
+                       n        = .N),
+                     by = .(onset_anchor,
+                            septic_shock_proxy)]
+
+## share of evaluable stays with first antimicrobial > 8h BEFORE recognition
+antimicrobial_timing[!is.na(time_to_antimicrobial),
+                     mean(time_to_antimicrobial < -8)]
+
+## same as a count, for the text
+antimicrobial_timing[!is.na(time_to_antimicrobial),
+                     .(n_early = sum(time_to_antimicrobial < -8),
+                       n_total = .N,
+                       share   = mean(time_to_antimicrobial < -8))]
 
 ## xx 33 RECOMMENDATION -----------------------------------------------------------
 rec33_label <- ssc_recommendations %>% 
@@ -2545,6 +2238,9 @@ rec_42 <- sepsis_base_cohort_data %>%
       is.na(septic_shock_proxy),
     "no septic shock or unknown"
   )]
+
+
+proportions(table(rec_42$rec_42_bp_monitoring))
   
 
 ## 43 RECOMMENDATION -----------------------------------------------------------
@@ -2552,54 +2248,36 @@ rec_42 <- sepsis_base_cohort_data %>%
 rec43_label <- ssc_recommendations %>% 
   .[rec_num == 43, rec_label]
 
-## Non-crystalloid resuscitation fluids
-## Find source / confirm this list
-non_crystalloid_patterns <- c(
-  "albumin",
-  "hetastarch",
-  "hydroxyethyl",
-  "dextran",
-  "gelatin")
-
-## Item IDs for non-crystalloid resuscitation fluids
-non_crystalloid_itemids <- d_items %>% 
-  .[linksto == "inputevents"] %>% 
-  .[grepl(paste(non_crystalloid_patterns,
-                collapse = "|"),
-          label,
-          ignore.case = TRUE)] %>% 
-  .[!grepl("ingredient|OR|PACU",
-           label,
-           ignore.case = TRUE)]
-
-## Resuscitation fluids
-resuscitation_fluid_itemids <- rbindlist(
-  list(
-    crystalloid_itemids[, .(
-      itemid,
-      fluid_label = label,
-      fluid_type = "Crystalloid"
-    )],
-    non_crystalloid_itemids[, .(
-      itemid,
-      fluid_label = label,
-      fluid_type = "Colloid"
-    )]
-  ),
-  fill = TRUE
-)
-
 ## IV fluid resuscitation events
 resuscitation_fluid_events <- all_inputevents %>% 
   ## patients in sepsis base cohort
   .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
   ## IV resuscitation fluids item IDs
-  .[itemid %in% resuscitation_fluid_itemids$itemid] %>%
-  # .[!is.na(amount) & amount >= 250] %>% 
+  # .[itemid %in% resuscitation_fluid_itemids$itemid] %>% 
+  .[itemid %in% input_fluid_classification[resuscitation_role %in% c("crystalloid",
+                                                                     "colloid")]$itemid] %>% 
+  ## keep only fluids given for volume resuscitation (main fluid orders / boluses)
+  .[ordercategoryname %in% c("02-Fluids (Crystalloids)",
+                             "03-IV Fluid Bolus",
+                             "04-Fluids (Colloids)") &
+      ordercategorydescription %in% c("Continuous IV",
+                                      "Bolus")] %>%
   merge(.,
-        resuscitation_fluid_itemids,
+        input_fluid_classification[, .(itemid,
+                                       fluid_label = label,
+                                       resuscitation_role)],
         by = "itemid",
-        all.x = TRUE) %>% 
+        all.x = TRUE,
+        all.y = FALSE) %>% 
+  .[, fluid_type := fcase(
+    
+    resuscitation_role == "crystalloid",
+    "Crystalloid",
+    
+    resuscitation_role == "colloid",
+    "Colloid",
+    
+    default = NA_character_)] %>% 
   .[, .(stay_id,
        fluid_start = starttime,
        fluid_end = endtime,
@@ -2608,7 +2286,9 @@ resuscitation_fluid_events <- all_inputevents %>%
        fluid_amount = amount,
        fluid_unit = amountuom,
        fluid_label,
-       fluid_type)]
+       fluid_type,
+       ordercategoryname,
+       ordercategorydescription)]
 
 ## Check whether fluid rate and amount are plausible
 quantile(resuscitation_fluid_events$fluid_rate,
@@ -2631,8 +2311,13 @@ first_line_fluid <- resuscitation_fluid_events %>%
         by = "stay_id",
         all = FALSE,
         allow.cartesian = TRUE) %>% 
+  ## initial resuscitation window [onset - 1h, onset + 3h], consistent with rec 44/45
+  ## and the SSC "first 3 hours"; the wider +12h window is retained below as a sensitivity
   .[fluid_start >= fluid_resuscitation_start &
-      fluid_start <= fluid_resuscitation_end + hours(12)] %>% 
+      fluid_start <= fluid_resuscitation_end] %>%
+  ## sensitivity (wider window, onset + 15h):
+  # .[fluid_start >= fluid_resuscitation_start &
+  #     fluid_start <= fluid_resuscitation_end + hours(12)] %>%
   .[order(subject_id,
           hadm_id,
           stay_id,
@@ -2678,64 +2363,61 @@ rec_43 <- sepsis_base_cohort_data %>%
     "no initial fluid resuscitation within 3h",
     
     default = NA_character_)]
+
+
+proportions(table(rec_43$rec_43_crystalloid_first_line))
    
 
-## 44 & 45 RECCOMENDATION -----------------------------------------------------------
+## 44 & 45 RECCOMENDATION ------------------------------------------------------
 rec44_label <- ssc_recommendations %>% 
   .[rec_num == 44, rec_label]
 
 rec_45_label <- ssc_recommendations %>% 
   .[rec_num == 45, rec_label]
 
-## Define balanced crystalloid item IDs
-balanced_crystalloid_itemids <- crystalloid_itemids %>% 
-  .[grepl("LR|Normosol",
-          label,
-          ignore.case = TRUE)]
-
-## Define 0.9% Saline item ID
-saline_crystalloid_itemids <- crystalloid_itemids %>% 
-  .[grepl("Saline|NaCl",
-          label,
-          ignore.case = TRUE)]
-
-## Albumin administration item IDs
-albumin_itemids <- d_items %>% 
-  .[category %in% c("Blood Products/Colloids",
-                    "Fluids - Other (Not In Use)")] %>% 
-  .[grepl("albumin",
-          label,
-          ignore.case = TRUE)]
-
-
-## Resuscitation IV Fluid Intake
-resuscitation_fluid_events <- all_inputevents %>% 
+## Resuscitation IV Fluid Intake 
+balanced_saline_fluid_events <- all_inputevents %>%
   ## only patients in sepsis base cohort
-  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>%
   ## Resuscitation IV fluid item IDs
-  .[itemid %in% c(crystalloid_itemids$itemid,
-                  albumin_itemids$itemid)] %>% 
-  .[,
-    fluid_type := ifelse(itemid %in% balanced_crystalloid_itemids$itemid,
-                               "Balanced",
-                               ifelse(
-                                 itemid %in% saline_crystalloid_itemids$itemid,
-                                 "0.9% Saline",
-                                 ifelse(
-                                   itemid %in% albumin_itemids$itemid,
-                                   "Albumin",
-                                   "Other/Unknown Crystalloid")
-                               ))]
+  .[itemid %in% input_fluid_classification[resuscitation_role == "crystalloid" |
+                                             fluid_type == "Albumin (Colloid)"]$itemid] %>%
+  ## keep only fluids given for volume resuscitation, not as drug carriers etc.
+  .[ordercategoryname %in% c("02-Fluids (Crystalloids)",
+                             "03-IV Fluid Bolus",
+                             "04-Fluids (Colloids)") &
+      ordercategorydescription %in% c("Continuous IV",
+                                      "Bolus")] %>%
+  merge(.,
+        input_fluid_classification[, .(itemid,
+                                       classification = fluid_type)],
+        by = "itemid",
+        all.x = TRUE,
+        all.y = FALSE) %>% 
+  .[, fluid_type := fcase(
+    
+    classification == "Balanced crystalloid",
+    "Balanced",
+    
+    classification == "Unbalanced crystalloid (normal saline)",
+    "0.9% Saline",
+    
+    classification == "Albumin (Colloid)",
+    "Albumin",
+    
+    default = NA_character_)] %>% 
+  .[, classification := NULL]
+                               
 
 ## Total IV resuscitation fluids administered within initital resuscitation window
 iv_fluids_initial_window <- sepsis_base_cohort_data %>% 
   merge(.,
-        resuscitation_fluid_events,
+        balanced_saline_fluid_events,
         by = c("subject_id",
                "hadm_id",
                "stay_id"),
         all.x = TRUE,
-        all.y = FALSE) %>% 
+        all.y = FALSE) %>%
   ## define initital resuscitation window as the first 3 hours after 
   ## sepsis onset and 1 hour before to account for delayed documentation
   ## define crystalloid administration within initial resuscitation window
@@ -2753,18 +2435,39 @@ iv_fluids_initial_window <- sepsis_base_cohort_data %>%
                                                              overlap_start,
                                                            unit = "minutes"),
                                     NA_real_))] %>% 
-  .[, fluid_ml_initial_window := overlap_time * rate] %>% 
-  .[, total_fluid_initial_window := sum(fluid_ml_initial_window, 
+  .[, fluid_ml_initial_window := fcase(
+    ## continuous infusion: prorate by overlap with the resuscitation window
+    rateuom %in% c("mL/hour", "mL/min"),
+    overlap_time * rate,
+    ## bolus (amount-based, no rate): count the full amount if given in the window
+    is.na(rate) &
+      starttime >= fluid_resuscitation_start &
+      starttime <= fluid_resuscitation_end,
+    amount,
+    default = NA_real_)] %>%
+  ## bolus-only volume (resuscitation-specific sensitivity for rec 44):
+  ## boluses carry the "Bolus" order description; continuous (mostly maintenance) excluded
+  .[, fluid_ml_initial_window_bolus := fifelse(ordercategorydescription == "Bolus",
+                                               fluid_ml_initial_window,
+                                               NA_real_)] %>%
+  .[, total_fluid_initial_window := sum(fluid_ml_initial_window,
                                na.rm = TRUE),
     by = .(subject_id,
            hadm_id,
            stay_id,
-           fluid_type)] %>% 
+           fluid_type)] %>%
+  .[, total_fluid_initial_window_bolus := sum(fluid_ml_initial_window_bolus,
+                                              na.rm = TRUE),
+    by = .(subject_id,
+           hadm_id,
+           stay_id,
+           fluid_type)] %>%
   .[, .(subject_id,
-        hadm_id, 
+        hadm_id,
         stay_id,
         fluid_type,
-        total_fluid_initial_window)] %>% 
+        total_fluid_initial_window,
+        total_fluid_initial_window_bolus)] %>%
   unique()
 
   
@@ -2788,16 +2491,48 @@ rec_44 <- iv_fluids_initial_window %>%
       FALSE,
       NA))] %>% 
   .[, rec_44_eligibility := fcase(
-    
+
     !is.na(rec_44_balanced_over_saline),
     "eligible",
-    
+
     Balanced == 0 & `0.9% Saline` == 0,
     "no crystalloid fluids within initital resuscitation window"
   )]
 
+## Sensitivity (rec 44): balanced vs saline using resuscitation BOLUSES only,
+## since continuous crystalloid in MIMIC is predominantly maintenance-rate
+rec_44_bolus <- iv_fluids_initial_window %>%
+  copy() %>%
+  .[is.na(fluid_type),
+    fluid_type := "no crystalloid"] %>%
+  dcast(subject_id +
+          hadm_id +
+          stay_id  ~ fluid_type,
+        value.var = "total_fluid_initial_window_bolus",
+        fill = 0) %>%
+  .[, rec_44_balanced_over_saline_bolus_causal := fifelse(
+    Balanced > 0 &
+      Balanced > `0.9% Saline`,
+    TRUE,
+    fifelse(
+      `0.9% Saline` > 0 &
+        Balanced <= `0.9% Saline`,
+      FALSE,
+      NA))] %>%
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        rec_44_balanced_over_saline_bolus_causal)]
 
-rec_45 <- iv_fluids_initial_window %>% 
+rec_44 <- merge(rec_44,
+                rec_44_bolus,
+                by = c("subject_id",
+                       "hadm_id",
+                       "stay_id"),
+                all.x = TRUE)
+
+
+rec_45 <- iv_fluids_initial_window %>%
   copy() %>% 
   .[is.na(fluid_type),
     fluid_type := "no crystalloid"] %>%
@@ -2825,191 +2560,113 @@ rec_45 <- iv_fluids_initial_window %>%
     Balanced == 0 & `0.9% Saline` == 0,
     "no crystalloid fluids within initital resuscitation window"
   )]
- 
-# 45 RECOMMENDATION
-# rec45_label <- ssc_recommendations %>% 
-#   copy() %>% 
-#   .[rec_num == 45, rec_label]
-# 
-# ## Albumin administration item IDs
-# albumin_itemids <- d_items %>% 
-#   copy() %>% 
-#   .[category %in% c("Blood Products/Colloids",
-#                     "Fluids - Other (Not In Use)")] %>% 
-#   .[grepl("albumin",
-#           label,
-#           ignore.case = TRUE)]
-# 
-# ## Albumin and Crystalloid administration
-# albumin_crystalloid_events <- all_inputevents %>% 
-#   copy() %>%
-#   ## only patients in sepsis base cohort
-#   .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
-#   ## Albumin item IDs
-#   .[itemid %in% crystalloid_itemids$itemid |
-#       itemid %in% albumin_itemids$itemid] %>% 
-#   .[, iv_resuscitation := fifelse(
-#     itemid %in% crystalloid_itemids$itemid,
-#     "Crystalloid",
-#     fifelse(
-#       itemid %in% albumin_itemids$itemid,
-#       "Albumin",
-#       NA_character_
-#     )
-#   )]
-# 
-# ## Crystallid administration within 24 hours without any albumin administration
-# rec_45 <- sepsis_base_cohort_data %>% 
-#   copy() %>% 
-#   .[, .(subject_id,
-#         hadm_id,
-#         stay_id,
-#         suspected_infection_time,
-#         first_vaso_time)] %>% 
-#   unique() %>% 
-#   merge(.,
-#         albumin_crystalloid_events,
-#         by = "stay_id", 
-#         all.x = TRUE,
-#         all.y = FALSE)
-#   .[starttime >= suspected_infection_time &
-#       starttime <= suspected_infection_time + hours(24)] %>% 
-#   .[, .(any_crystalloid = any(iv_resuscitation == "Crystalloid"),
-#         any_albumin = any(iv_resuscitation == "Albumin"),
-#         first_fluid_time = min(starttime,
-#                                na.rm = TRUE)),
-#     by = .(subject_id,
-#            hadm_id,
-#            stay_id)] %>% 
-#   ## adherance can only be determined if crystalloids were administered
-#   .[any_crystalloid == TRUE] %>% 
-#   .[, rec_45_crystalloid_without_albumin := any_crystalloid == TRUE &
-#       any_albumin == FALSE]
-  
 
-## 53 RECOMMENDATION -----------------------------------------------------------
+
+proportions(table(rec_44$rec_44_balanced_over_saline))
+proportions(table(rec_44$rec_44_balanced_over_saline_bolus_causal))
+proportions(table(rec_45$rec_45_crystalloid_no_albumin))
+
+table(rec_44$rec_44_balanced_over_saline)
+table(rec_44$rec_44_balanced_over_saline_bolus_causal)
+table(rec_45$rec_45_crystalloid_no_albumin)
+ 
+
+## 53 & 55 RECOMMENDATION ------------------------------------------------------
+### 53 RECOMMENDATION ----------------------------------------------------------
 rec53_label <- ssc_recommendations %>% 
   .[rec_num == 53, rec_label]
 
-## First line vasopressor Norepinephrine over Dopamine or Epinephrine
-## If first line vasopressor not Norepinephrine, Dopamine, or Epinephrine,
-## NA instead of non-adherance 
-
-first_vasopressor <- sepsis_base_cohort_data %>% 
-  merge(.,
-        all_vasopressorevents[, .(stay_id,
-                                  vaso_start,
-                                  vaso_end,
-                                  label = vaso_label,
-                                  amount = vaso_amount,
-                                  rate = vaso_rate)],
-                               
-        by = "stay_id",
-        all.x = TRUE,
-        all.y = FALSE) %>% 
-  ## In patients with septic shock, vasopressors should be administered
-  ## after sepsis onset, however, we consider up to 1 hour before sepsis 
-  ## onset to account for delayed documentation
-  .[vaso_start >= suspected_infection_time - hours(1)] %>% 
-  .[order(subject_id,
+## adherence to "norepinehprine first among a given comparator set"
+## if multiple agents were given first at the same time,
+## Norepinephrine is preferred
+first_vaso_among <- function(agents_regex) {
+  
+  sepsis_base_cohort_data %>% 
+    .[, .(subject_id,
           hadm_id,
           stay_id,
-          vaso_start),
-    .SD[1],
-    by = .(subject_id,
-           hadm_id,
-           stay_id)] %>% 
-  .[, .(subject_id,
-        hadm_id,
-        stay_id,
-        suspected_infection_time,
-        septic_shock_proxy,
-        vaso_start,
-        vaso_end,
-        first_vaso_amount = amount,
-        first_vaso_rate = rate,
-        first_vaso_type = label)] %>% 
-  unique()
+          septic_shock_proxy,
+          shock_vaso_start)] %>% 
+    unique() %>% 
+    merge(.,
+          all_vasopressorevents[grepl(agents_regex,
+                                      vaso_label,
+                                      ignore.case = TRUE),
+                                .(stay_id,
+                                  vaso_start,
+                                  vaso_label)],
+          by = "stay_id",
+          all = FALSE) %>% 
+    ## shock vaso start is already linked to the septic shock vasopresor
+    ## allow 15 minutes delay to capture any remaining documnentation lag
+    .[vaso_start >= shock_vaso_start - minutes(15) &
+        vaso_start <= shock_vaso_start + hours(12)] %>% 
+    .[, is_first := vaso_start == min(vaso_start,
+                                         na.rm = TRUE),
+      by = .(subject_id,
+             hadm_id,
+             stay_id)] %>% 
+    .[is_first == TRUE,
+      .(norepi_first = any(grepl("Norepinephrine",
+                                 vaso_label,
+                                 ignore.case = TRUE))),
+      by = .(subject_id,
+             hadm_id,
+             stay_id)]
+}
 
+## Recommendation 53 requires Norepinephrine over Epinephrine, Dopamine or Selepressin
+rec_53_first_vaso <- first_vaso_among("Norepinephrine|Epinephrine|Dopamine|Selepressin")
+
+## Encode recommendation 53
 rec_53 <- sepsis_base_cohort_data %>% 
   copy %>% 
   .[, .(subject_id,
         hadm_id,
         stay_id,
         septic_shock_proxy,
-        suspected_infection_time)] %>% 
+        septic_shock_onset_time)] %>% 
+  unique() %>% 
   merge(.,
-        first_vasopressor,
+        rec_53_first_vaso,
         by = c("subject_id",
                "hadm_id",
-               "stay_id",
-               "suspected_infection_time",
-               "septic_shock_proxy"),
-        all = TRUE) %>% 
-  .[, rec_53_first_vaso_norepi := fifelse(
-    grepl("Norepinephrine",
-          first_vaso_type,
-          ignore.case = TRUE),
-    TRUE,
-    ifelse(
-      grepl("Epinephrine|Dopamine",
-            first_vaso_type,
-            ignore.case = TRUE),
-      FALSE,
-      NA
-    )
-  )] %>% 
-  .[, rec_53_eligbility := fcase(
+               "stay_id"),
+        all.x = TRUE,
+        all.y = FALSE) %>% 
+  .[septic_shock_proxy == TRUE,
+    rec_53_first_vaso_norepi := norepi_first] %>% 
+  .[, rec_53_eligibility := fcase(
     
     !is.na(rec_53_first_vaso_norepi),
     "eligible",
     
     septic_shock_proxy == TRUE &
-      !is.na(first_vaso_type) &
-      is.na(rec_53_first_vaso_norepi),
-    "other vasoporessor administered",
+      is.na(norepi_first),
+    "first-line agent outside comparators",
     
-    septic_shock_proxy == FALSE | is.na(septic_shock_proxy),
-    "no septic shock or unknown"
-  )]
+    septic_shock_proxy == FALSE |
+      is.na(septic_shock_proxy),
+    "no septic shock or unknown",
+    
+    default = NA_character_)]
 
 
-## 55 RECOMMENDATION -----------------------------------------------------------
+## Adherence rates
+proportions(table(rec_53$rec_53_eligibility))
+table(rec_53$rec_53_eligibility)
+proportions(table(rec_53$rec_53_first_vaso_norepi))
+
+
+### 55 RECOMMENDATION ----------------------------------------------------------
 rec55_label <- ssc_recommendations %>% 
   .[rec_num == 55, rec_label]
 
-## First line vasopressor Norepinephrine over Vasopressin or Angiotensin II
-## If first line vasopressor not Norepinephrine, Vasopressin, or Angiotensin II,
-## NA instead of non-adherance 
-# first_vaso <- all_vasopressorevents %>% 
-#   copy() %>% 
-#   .[order(stay_id,
-#           vaso_start),
-#     .SD[1],
-#     by = stay_id]
 
-first_vaso <- vasopressor_events_shock %>% 
-  merge(.,
-        sepsis_base_cohort_data[, .(subject_id,
-                                    hadm_id,
-                                    stay_id,
-                                    septic_shock_proxy,
-                                    septic_shock_onset_time)],
-        by = c("subject_id",
-               "hadm_id",
-               "stay_id"),
-        all = FALSE) %>% 
-  .[septic_shock_proxy == TRUE &
-      vaso_start >= septic_shock_onset_time] %>% 
-  .[order(subject_id,
-          hadm_id,
-          stay_id,
-          vaso_start),
-    .SD[1],
-    by = .(subject_id,
-           hadm_id,
-           stay_id)]
+## Recommendation 55 requires Norepinephrine over Vasopressin and Angiotensin
+rec_55_first_vaso <- first_vaso_among("Norepinephrine|Vasopressin|Angiotensin")
 
+## Encode recommendation 55
 rec_55 <- sepsis_base_cohort_data %>% 
   copy %>% 
   .[, .(subject_id,
@@ -3017,41 +2674,84 @@ rec_55 <- sepsis_base_cohort_data %>%
         stay_id,
         septic_shock_proxy,
         septic_shock_onset_time)] %>% 
+  unique() %>% 
   merge(.,
-        first_vaso,
+        rec_55_first_vaso,
         by = c("subject_id",
                "hadm_id",
-               "stay_id",
-               "septic_shock_onset_time",
-               "septic_shock_proxy"),
-        all = TRUE) %>% 
-  .[, rec_55_first_vaso_norepi := fifelse(
-    grepl("Norepinephrine",
-          vaso_label,
-          ignore.case = TRUE),
-    TRUE,
-    ifelse(
-      grepl("Vasopressin|Angiotensin",
-            vaso_label,
-            ignore.case = TRUE),
-      FALSE,
-      NA
-    )
-  )] %>% 
-  .[, rec_55_eligbility := fcase(
+               "stay_id"),
+        all.x = TRUE,
+        all.y = FALSE) %>% 
+  .[septic_shock_proxy == TRUE,
+    rec_55_first_vaso_norepi := norepi_first] %>% 
+  .[, rec_55_eligibility := fcase(
     
     !is.na(rec_55_first_vaso_norepi),
     "eligible",
     
     septic_shock_proxy == TRUE &
-      !is.na(vaso_label) &
-      is.na(rec_55_first_vaso_norepi),
-    "other vasoporessor administered",
+      is.na(norepi_first),
+    "first-line agent outside comparators",
     
-    septic_shock_proxy == FALSE | is.na(septic_shock_proxy),
-    "no septic shock or unknown"
-  )]
+    septic_shock_proxy == FALSE |
+      is.na(septic_shock_proxy),
+    "no septic shock or unknown",
+    
+    default = NA_character_)]
 
+
+## Adherence rates
+proportions(table(rec_55$rec_55_eligibility))
+table(rec_55$rec_55_eligibility)
+proportions(table(rec_55$rec_55_first_vaso_norepi))
+
+
+### 53 & 55 CAUSAL -------------------------------------------------------------
+## Combine into one recommendation for causal analysis
+combined_first <- first_vaso_among(paste("Norepinephrine",
+                                         "Epinephrine",
+                                         "Dopamine",
+                                         "Vasopressin",
+                                         "Angiotensin",
+                                         "Selepressin",
+                                         "Terlipressin",
+                                         "Phenylephrine",
+                                         sep = "|"))
+
+rec_53_55_causal <- sepsis_base_cohort_data %>% 
+  copy() %>% 
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        septic_shock_proxy,
+        septic_shock_onset_time)] %>% 
+  unique() %>% 
+  merge(.,
+        combined_first,
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id"),
+        all.x = TRUE,
+        all.y = FALSE) %>% 
+  .[septic_shock_proxy == TRUE,
+    rec_53_55_norepi_first_line_causal := norepi_first] %>% 
+  .[, rec_53_55_eligibility := fcase(
+    
+    !is.na(rec_53_55_norepi_first_line_causal),
+    "eligible",
+    
+    septic_shock_proxy == TRUE &
+      is.na(rec_53_55_norepi_first_line_causal),
+    "no vasopressor in window",
+    
+    septic_shock_proxy == FALSE |
+      is.na(septic_shock_proxy),
+    "no septic shock or unknown")]
+
+## Adherence rates
+proportions(table(rec_53_55_causal$rec_53_55_eligibility))
+table(rec_53_55_causal$rec_53_55_eligibility)
+proportions(table(rec_53_55_causal$rec_53_55_norepi_first_line_causal))
 
 ## 56 RECOMMENDATION -----------------------------------------------------------
 rec56_label <- ssc_recommendations %>% 
@@ -4939,43 +4639,33 @@ rec79_label <- ssc_recommendations %>%
 ## Prednisone & prednisolone are oral corticosteroids --> not IV
 ## Acetate steroids are not administered intravenously
 corticosteroid_events <- corticosteroid_emar_icu %>% 
-  .[event_txt %in% c("Administered",
-                     "Delayed Administration",
-                     "Administered in Other Location",
-                     "Partial Administration") &
-      !grepl(paste(c("cream",
-                     "oint",
-                     "ophth",
-                     "rectal","enema",
-                     "foam",
-                     "suppository",
-                     "study",
-                     "inv-",
-                     "tobramycin",
-                     "sulfacetamide",
-                     "oral",
-                     "^prednisone",
-                     "^prednisolone",
-                     ## type of prednisolone
-                     "predforte",
-                     "acetate"),
-                   collapse = "|"),
-             medication,
-             ignore.case = TRUE)] %>% 
+  .[grepl("Administered|Started|Confirmed", 
+         event_txt,
+         ignore.case = TRUE) & 
+     !grepl("Not Given|Hold Dose|Stopped", 
+            event_txt,
+            ignore.case = TRUE)] %>% 
+  ## drop confirmed enteral routes
+  ## IV records carry NA route in this source
+  .[is.na(route) |
+      route %notin% c("PO", "NG")] %>%
+  ## IV confirmed by formulation: sodium succinate salts injectable only
+  .[grepl("succ",
+          medication,
+          ignore.case = TRUE) |
+      administration_type == "IV Infusion"] %>% 
   .[, medication := trimws(tolower(medication))] %>% 
   .[, corticosteroid_type := fcase(
-    grepl("hydrocortisone na succ",
-          medication), "Hydrocortisone sodium succinate",
-    grepl("^hydrocortisone$",
-          medication), "Hydrocortisone",
-    grepl("^dexamethasone$",
-          medication), "Dexamethasone",
+    
+    grepl("hydrocortisone na succ|hydrocortisone sodium succ",
+          medication),
+    "Hydrocortisone sodium succinate",
+    
     grepl("methylprednisolone sodium succ",
-          medication), "Methylprednisolone sodium succ",
-    grepl("^methylprednisolone$",
-          medication), "Methylprednisolone",
-    default = medication
-  )] %>% 
+          medication),
+          "Methylprednisolone sodium succinate",
+    
+    default = medication)] %>% 
   .[, .(subject_id,
         hadm_id,
         steroid_time = charttime,
@@ -4997,9 +4687,9 @@ rec_79 <- sepsis_base_cohort_data %>%
   ## corticosteroid after septic shock onset
   .[, window_24h_after_onset :=
       !is.na(steroid_time) &
-      !is.na(septic_shock_onset_time) &
-      steroid_time >= septic_shock_onset_time - hours(1) &
-         steroid_time <= septic_shock_onset_time + hours(24)] %>% 
+      !is.na(septic_shock_onset_time)] %>% 
+  # .[steroid_time >= septic_shock_onset_time - hours(1) &
+  #     steroid_time <= septic_shock_onset_time + hours(24)] %>% 
   .[order(subject_id,
           hadm_id,
           stay_id,
@@ -5029,6 +4719,11 @@ rec_79 <- sepsis_base_cohort_data %>%
     "no septic shock or unknown",
     
     default = NA_character_)]
+
+
+## Adherence rates
+proportions(table(rec_79$rec_79_iv_corticosteroids))
+rec_79[rec_79_iv_corticosteroids == TRUE, .N, by = corticosteroid_type][order(-N)]
 
 
 ## 89 RECOMMENDATION -----------------------------------------------------------
@@ -5171,8 +4866,10 @@ vasopressor_hourly <- all_vasopressorevents %>%
                                     septic_shock_onset_time)] %>% unique(),
         by = "stay_id",
         all = FALSE) %>% 
-  .[septic_shock_proxy == TRUE] %>% 
-  .[!is.na(vaso_start) & !is.na(vaso_end)] %>% 
+  .[septic_shock_proxy == TRUE] %>%
+  .[!is.na(vaso_start) & !is.na(vaso_end)] %>%
+  ## normalize mislabeled epinephrine so it is not dropped by the fcase below
+  .[vaso_label == "Epinephrine.", vaso_label := "Epinephrine"] %>%
   .[, norepi_equiv_rate := fcase(
     vaso_label == "Norepinephrine",
     vaso_rate,
@@ -5208,11 +4905,13 @@ vasopressor_hourly <- all_vasopressorevents %>%
     ),
     norepi_equiv_rate = norepi_equiv_rate
   ),
-  by = .(vp_event_id, stay_id, vaso_label)] %>% 
+  by = .(vp_event_id, stay_id, vaso_label)] %>%
+  ## sum concurrent agents' norepinephrine-equivalents per hour (combined burden,
+  ## not the single highest agent) so combination vasopressors count as high dose
   .[, .(
-    vasopressor_rate = max(norepi_equiv_rate, na.rm = TRUE)
+    vasopressor_rate = sum(norepi_equiv_rate, na.rm = TRUE)
   ),
-  by = .(stay_id, chart_hour)] %>% 
+  by = .(stay_id, chart_hour)] %>%
   .[order(stay_id,
           chart_hour)] %>% 
   .[, previous_rate := shift(vasopressor_rate,
@@ -5228,7 +4927,9 @@ acute_resuscitation_hours <- sepsis_base_cohort_data %>%
   .[septic_shock_proxy == TRUE] %>% 
   .[, start_hour := lubridate::floor_date(septic_shock_onset_time,
                                           "hour")] %>% 
-  .[, end_hour := start_hour + hours(7 * 24)] %>% 
+  .[, end_hour := pmin(start_hour + lubridate::hours(7 * 24),
+                       lubridate::floor_date(icu_outtime, "hour"),
+                       na.rm = TRUE)] %>% 
   .[, .(chart_hour = seq(start_hour,
                          end_hour,
                          by = "hour")),
@@ -5282,46 +4983,94 @@ post_resuscitation_time <- acute_resuscitation_hours %>%
     by = stay_id]
 
 ## Recommendation 89
-rec_89 <- sepsis_base_cohort_data %>% 
-  .[septic_shock_proxy == TRUE] %>% 
-  merge(.,
-        post_resuscitation_time,
-        by = "stay_id",
-        all.x = TRUE,
-        all.y = FALSE) %>% 
+## First active fluid removal in [post_resuscitation, +48h]. Built from
+## post_resuscitation_time, so only stays that reached the post-resuscitation
+## phase can appear; a stay with removal only outside the window or before
+## stabilization does not.
+fluid_removal_in_window <- post_resuscitation_time %>%
   merge(.,
         active_fluid_removal_events,
         by = "stay_id",
-        all.x = TRUE,
-        all.y = FALSE) %>% 
-  ## Active fluid removal after acute resuscitation
-  .[is.na(fluid_removal_time) |
-      (fluid_removal_time >= post_resuscitation_time &
-         fluid_removal_time <= post_resuscitation_time + hours(48))] %>% 
-  .[order(fluid_removal_time),
+        all.x = FALSE,
+        all.y = FALSE) %>%
+  .[fluid_removal_time >= post_resuscitation_time &
+      fluid_removal_time <= post_resuscitation_time + hours(48)] %>%
+  .[order(stay_id,
+          fluid_removal_time),
     .SD[1],
-    by = .(subject_id,
-           hadm_id,
-           stay_id)] %>% 
+    by = stay_id] %>%
+  .[, .(stay_id,
+        first_fluid_removal_time = fluid_removal_time,
+        first_fluid_removal_detail = fluid_removal_detail)]
+
+## SENSITIVITY: wider window of 7 days after post-resuscitation (vs the 48h primary),
+## matching the 7-day acute-resuscitation horizon, to test robustness to the window
+fluid_removal_in_window_7d <- post_resuscitation_time %>%
+  merge(.,
+        active_fluid_removal_events,
+        by = "stay_id",
+        all.x = FALSE,
+        all.y = FALSE) %>%
+  .[fluid_removal_time >= post_resuscitation_time &
+      fluid_removal_time <= post_resuscitation_time + hours(7 * 24)] %>%
+  .[order(stay_id,
+          fluid_removal_time),
+    .SD[1],
+    by = stay_id] %>%
+  .[, .(stay_id,
+        first_fluid_removal_time_7d = fluid_removal_time)]
+
+rec_89 <- sepsis_base_cohort_data %>%
   .[, .(subject_id,
         hadm_id,
         stay_id,
-        septic_shock_onset_time,
+        septic_shock_proxy,
+        septic_shock_onset_time)] %>%
+  unique() %>%
+  merge(.,
         post_resuscitation_time,
-        first_fluid_removal_time = fluid_removal_time,
-        first_fluid_removal_detail = fluid_removal_detail)] %>% 
-  .[, rec_89_active_fluid_removal := !is.na(first_fluid_removal_time)] %>% 
+        by = "stay_id",
+        all.x = TRUE,
+        all.y = FALSE) %>%
+  merge(.,
+        fluid_removal_in_window,
+        by = "stay_id",
+        all.x = TRUE,
+        all.y = FALSE) %>%
+  merge(.,
+        fluid_removal_in_window_7d,
+        by = "stay_id",
+        all.x = TRUE,
+        all.y = FALSE) %>%
+  ## adherence is defined only for shock patients who reached the
+  ## post-resuscitation phase; never-stabilized patients are non-evaluable (NA)
+  .[septic_shock_proxy == TRUE &
+      !is.na(post_resuscitation_time),
+    rec_89_active_fluid_removal := !is.na(first_fluid_removal_time)] %>%
+  ## SENSITIVITY: active fluid removal within 7 days of post-resuscitation
+  .[septic_shock_proxy == TRUE &
+      !is.na(post_resuscitation_time),
+    rec_89_active_fluid_removal_7d := !is.na(first_fluid_removal_time_7d)] %>%
   .[, rec_89_eligibility := fcase(
-    
+
+    septic_shock_proxy != TRUE |
+      is.na(septic_shock_proxy),
+    "no septic shock or unknown",
+
+    is.na(post_resuscitation_time),
+    "did not reach post-resuscitation phase",
+
     !is.na(rec_89_active_fluid_removal),
     "eligible",
-    
-    septic_shock_proxy == FALSE | is.na(septic_shock_proxy),
-    "no septic shock or unknown",
-    
-    default = NA_character_
-  )]
 
+    default = NA_character_)]
+
+
+## Adherence rates
+proportions(table(rec_89$rec_89_eligibility))
+table(rec_89$rec_89_eligibility)
+proportions(table(rec_89$rec_89_active_fluid_removal))
+proportions(table(rec_89$rec_89_active_fluid_removal_7d))
 
 ## 90 RECOMMENDATION -----------------------------------------------------------
 rec90_label <- ssc_recommendations %>% 
@@ -5333,58 +5082,87 @@ rbc_transfusion_itemids <- d_items %>%
           label,
           ignore.case = TRUE)]
 
-## RBC transfusions
-rbc_transfusion_events <- all_inputevents %>% 
+## RBC transfusions (keep subject/hadm for labevents linkage)
+rbc_transfusion_events <- all_inputevents %>%
   ## only patients in sepsis base cohort
-  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
+  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>%
   ## RBC transfusion item IDs
-  .[itemid %in% rbc_transfusion_itemids$itemid] %>% 
-  .[!is.na(amount) & amount > 0] %>% 
-  .[, .(stay_id,
+  .[itemid %in% rbc_transfusion_itemids$itemid] %>%
+  .[!is.na(amount) & amount > 0] %>%
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
         transfusion_time = starttime,
         transfused_ml = amount)]
 
-## Hemoglobin item ID
-hemoglobin_itemid <- d_items %>% 
-  .[grepl("hemoglobin",
-          label,
-          ignore.case = TRUE)]
+## Hemoglobin from labevents (the laboratory value that triggers transfusion;
+## hospital-wide, so it also covers draws before ICU admission)
+hemoglobin_itemid <- lab_itemids %>%
+  .[label == "Hemoglobin" &
+      grepl("blood",
+            fluid,
+            ignore.case = TRUE)]
 
 ## Hemoglobin measurements
-hemoglobin_events <- all_chartevents %>% 
-  ## only patients in sepsis base cohort
-  .[stay_id %in% sepsis_base_cohort_data$stay_id] %>% 
-  ## Hemoglobin item ID
-  .[itemid == hemoglobin_itemid$itemid] %>% 
-  .[!is.na(valuenum)] %>% 
-  .[valuenum >= 3 & valuenum <= 20] %>% 
-  .[, .(stay_id,
+hemoglobin_events <- all_labevents %>%
+  ## hemoglobin lab item IDs
+  .[itemid %in% hemoglobin_itemid$itemid] %>%
+  .[!is.na(valuenum) &
+      valuenum >= 3 &
+      valuenum <= 20] %>%
+  .[, .(subject_id,
+        hadm_id,
         hb_time = charttime,
         hemoglobin = valuenum)]
 
-## Last hemoglobin value before each transfusion
-pre_transfusion_hb <- rbc_transfusion_events %>% 
+## Most recent hemoglobin in [transfusion - 24h, transfusion] per transfusion
+pre_hb <- rbc_transfusion_events %>%
   merge(.,
         hemoglobin_events,
-        by = "stay_id",
-        allow.cartesian = TRUE) %>% 
+        by = c("subject_id",
+               "hadm_id"),
+        allow.cartesian = TRUE) %>%
   .[hb_time <= transfusion_time &
-      hb_time >= transfusion_time - hours(24)] %>% 
-  .[order(stay_id,
+      hb_time >= transfusion_time - hours(24)] %>%
+  .[order(subject_id,
+          hadm_id,
+          stay_id,
           transfusion_time,
-          -hb_time)] %>% 
+          -as.numeric(hb_time))] %>%
   .[, .SD[1],
-    by = .(stay_id,
-           transfusion_time)]
+    by = .(subject_id,
+           hadm_id,
+           stay_id,
+           transfusion_time)] %>%
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        transfusion_time,
+        hemoglobin)]
+
+## Attach the pre-transfusion hemoglobin back to ALL transfusions, so a transfusion
+## with no qualifying pre-transfusion hemoglobin is retained (trigger unknown)
+## rather than dropped and the patient mislabeled as never transfused
+pre_transfusion_hb <- rbc_transfusion_events %>%
+  merge(.,
+        pre_hb,
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id",
+               "transfusion_time"),
+        all.x = TRUE,
+        all.y = FALSE)
 
 ## Classify transfusion threshold
-rec_90 <- sepsis_base_cohort_data %>% 
+rec_90 <- sepsis_base_cohort_data %>%
   merge(.,
         pre_transfusion_hb,
-        by = "stay_id",
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id"),
         all.x = TRUE,
         all.y = FALSE,
-        allow.cartesian = TRUE) %>% 
+        allow.cartesian = TRUE) %>%
   .[, transfusion_strategy := fcase(
     hemoglobin < 7,
     "Restrictive",
@@ -5404,25 +5182,53 @@ rec_90 <- sepsis_base_cohort_data %>%
     transfusion_after_sepsis == TRUE &
       transfusion_strategy == "Restrictive",
     TRUE,
-    
+
     transfusion_after_sepsis == TRUE &
       transfusion_strategy %in% c("Liberal",
                                   "Intermediate"),
     FALSE,
-    
-    default = NA)] %>% 
+
+    default = NA)] %>%
+  ## Sensitivity: restrictive threshold of <8 g/dL (vs <7 primary), the looser
+  ## cut some guidelines allow for cardiac or elderly patients
+  .[, rec_90_restrictive_transfusion_8 := fcase(
+    transfusion_after_sepsis == TRUE &
+      !is.na(hemoglobin) &
+      hemoglobin < 8,
+    TRUE,
+
+    transfusion_after_sepsis == TRUE &
+      !is.na(hemoglobin) &
+      hemoglobin >= 8,
+    FALSE,
+
+    default = NA)] %>%
   .[, rec_90_eligibility := fcase(
-    
+
     !is.na(rec_90_restrictive_transfusion),
     "eligible",
-    
+
+    transfusion_after_sepsis == TRUE &
+      is.na(transfusion_strategy),
+    "transfused, pre-transfusion hemoglobin unavailable",
+
     transfusion_after_sepsis == FALSE |
       is.na(transfusion_after_sepsis),
     "no blood transfusion after sepsis onset",
-    
+
     default = NA_character_
   )]
 
+
+## Adherence rates
+proportions(table(rec_90$rec_90_eligibility))
+table(rec_90$rec_90_eligibility)
+proportions(table(rec_90$rec_90_restrictive_transfusion))
+
+proportions(table(rec_90$rec_90_restrictive_transfusion_8))
+
+proportions(table(rec_90[rec_90_eligibility == "eligible"]$transfusion_strategy))
+rec_90[rec_90_eligibility == "eligible", .N, by = transfusion_strategy][order(-N)]
 
 ## 91 RECOMMENDATION -----------------------------------------------------------
 ## cannot be assessed within the first 24h
@@ -6455,6 +6261,11 @@ DT_ssc_encoded <- sepsis_base_cohort_data %>%
         all.x = TRUE,
         all.y = FALSE,
         allow.cartesian = FALSE) %>% 
+  merge(.,
+        rec_53_55_causal[, .(subject_id,
+                             hadm_id,
+                             stay_id,
+                             rec_53_55_norepi_first_line_causal)])
   merge(.,
         rec_56[, .(subject_id,
                    hadm_id,
