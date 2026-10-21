@@ -8,6 +8,7 @@ library(here)
 library(glue)
 library(stringr)
 library(flowchart)
+library(arrow)
 
 ## Link Big Query Data
 library(bigrquery)
