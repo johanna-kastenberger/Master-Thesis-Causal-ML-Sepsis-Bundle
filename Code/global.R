@@ -8,6 +8,7 @@ library(here)
 library(glue)
 library(stringr)
 library(flowchart)
+library(arrow)
 
 ## Link Big Query Data
 library(bigrquery)
@@ -20,6 +21,11 @@ library(ranger)
 library(xgboost)
 library(dagitty)
 library(EValue)
+
+## Flowchart
+library(DiagrammeR)
+library(DiagrammeRsvg)
+library(rsvg)
 
 ## Source functions
 source(

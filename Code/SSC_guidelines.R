@@ -224,7 +224,7 @@ ssc_guidelines[rec_num == 15,
 ## Infection
 
 ssc_guidelines[rec_num == 16,
-               `:=` (rec_label = "For adults with possible, or definite septic shock, 
+               `:=` (rec_label = "For adults with possible, probable or definite septic shock, 
                      we recommend administering antimicrobial therapy immediately, 
                      ideally within 1 hour of recognition",
                      

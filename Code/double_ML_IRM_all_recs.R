@@ -66,19 +66,19 @@ W <- unique(c(W_demographics,
 ## Double ML Wrapper Function --------------------------------------------------
 ## fits the Double ML IRM model for a given SSC recommendation & Sepsis Outcome
 
-run_dml <- function(rec_dt,
-                    treat_col,
+run_dml <- function(treat_col,
                     outcome_col, ## sepsis outcome = c("mort_28d", "icu_mortality", "aki_new")
                     tier, ## cohort tier = c("full", "well_observed", "well_observed_strict")
                     W) {
-  
+
   ## Assemble Analysis Frame (A, Y, W)
-  ## treatment: eligible stays only (exclude NA entries, since 
-  ## they are outside the recommendation's population)
-  DT_dml_raw <- rec_dt[, .(subject_id,
-                           hadm_id,
-                           stay_id,
-                           A = get(treat_col))] %>%
+  ## treatment: eligible stays only (exclude NA entries, since
+  ## they are outside the recommendation's population). Pulled from the single
+  ## encoded table so every recommendation uses one consistent source.
+  DT_dml_raw <- DT_ssc_encoded[, .(subject_id,
+                                   hadm_id,
+                                   stay_id,
+                                   A = get(treat_col))] %>%
     .[!is.na(A)] %>%
     ## outcome
     merge(.,
@@ -130,19 +130,21 @@ run_dml <- function(rec_dt,
   if (nrow(DT_dml_raw) < 100 || 
       DT_dml_raw[, uniqueN(A)] < 2) {
     
-    return(data.table(treat_col, 
-                      outcome = outcome_col, 
+    return(data.table(treat_col,
+                      outcome = outcome_col,
                       tier,
-                      n = nrow(DT_dml_raw), 
-                      n_treated = NA_integer_, 
+                      n = nrow(DT_dml_raw),
+                      n_treated = NA_integer_,
                       p0 = NA_real_,
-                      ate = NA_real_, 
-                      se = NA_real_, 
+                      ate = NA_real_,
+                      se = NA_real_,
                       ci_lo = NA_real_,
                       ci_hi = NA_real_,
-                      pval = NA_real_, 
-                      ps_p01 = NA_real_, 
-                      ps_p99 = NA_real_))
+                      pval = NA_real_,
+                      ps_p01 = NA_real_,
+                      ps_p99 = NA_real_,
+                      rv = NA_real_,
+                      rva = NA_real_))
   }
   
   
@@ -213,27 +215,35 @@ run_dml <- function(rec_dt,
                                  ## sets up 5-fold cross-fitting
                                  ## removes overfitting bias
                                  n_folds = 5,
+                                 ## repeat the cross-fitting 5 times and aggregate,
+                                 ## so the estimate does not depend on one random
+                                 ## fold split (median over reps, SE inflated for
+                                 ## across-split variability)
+                                 n_rep = 5,
                                  ## trims propensity scores to [0.01, 0.99]
                                  ## so no single near-deterministic patient
                                  ## destabilizes the estimate
                                  trimming_threshold = 0.01)
-  
-  
+
+
   ## runs the whole Double ML algorithm and stores results inside dml_irm_mod
   dml_irm_mod$fit(store_predictions = TRUE)
-  
+
   ## Confidence Interval
   ci <- dml_irm_mod$confint()
-  
-  ## Propensity Scores
-  ps <- dml_irm_mod$predictions$ml_m[, 1, 1] 
-  
+
+  ## Propensity Scores (pooled across all repetitions for the overlap diagnostic)
+  ps <- as.vector(dml_irm_mod$predictions$ml_m)
+
   ## Propensity Score quantiles
-  ps_q <- quantile(ps, c(0.01, 
-                         0.99), 
+  ps_q <- quantile(ps, c(0.01,
+                         0.99),
                    na.rm = TRUE)
-  
-  ## Build one-row results data table
+
+  ## Build one-row results data table. Sensitivity to unmeasured confounding is
+  ## assessed downstream via the E-value (VanderWeele & Ding) computed from the
+  ## risk ratio, since the R DoubleML package does not provide the native
+  ## robustness-value sensitivity analysis.
   data.table(treat_col = treat_col,
              outcome = outcome_col,
              tier = tier,
@@ -251,8 +261,7 @@ run_dml <- function(rec_dt,
 
 
 ## Test Case for the run_dml() function
-rec_16_res <- run_dml(rec_dt = rec_16,
-        treat_col = "rec_16_antimicrobial_within_1h",
+rec_16_res <- run_dml(treat_col = "rec_16_antimicrobial_within_1h_causal",
         outcome_col = "mort_28d",
         tier = "full",
         W = W)
@@ -260,25 +269,26 @@ rec_16_res <- run_dml(rec_dt = rec_16,
 
 ## Building SSC Recomenddation x Outcome x Observability Tier Grid -------------
 
-## SSC Recommendations
-ssc_recs <- data.table(rec_dt = c("rec_7",
-                                  "rec_8",
-                                  "rec_10",
-                                  "rec_12",
-                                  "rec_13",
-                                  "rec_15",
-                                  "rec_16",
-                                  "rec_17",
-                                  "rec_42"),
-                       treat_col = c("rec_7_culture_before_antimicrobial",
-                                     "rec_8_lactate_measured_within_1h",
-                                     "rec_10_crystalloid_within_3h",
-                                     "rec_12_vaso_without_central_delay",
-                                     "rec_13_map_target_65",
-                                     "rec_15_icu_6h",
-                                     "rec_16_antimicrobial_within_1h",
-                                     "rec_17_antimicrobial_within_1h",
-                                     "rec_42_bp_monitoring"))
+## SSC Recommendations carried into the causal analysis (the descriptive-only and
+## omitted recommendations are excluded). rec 53 and 55 are analysed jointly via
+## the combined norepinephrine-first-line measure. Treatment columns are the
+## _causal variants from DT_ssc_encoded.
+ssc_recs <- data.table(
+  treat_col = c("rec_7_culture_before_antimicrobial_causal",
+                "rec_8_lactate_measured_within_1h_causal",
+                "rec_10_crystalloid_within_3h_causal",
+                "rec_15_icu_6h_causal",
+                "rec_16_antimicrobial_within_1h_causal",
+                "rec_17_antimicrobial_within_1h_causal",
+                "rec_44_balanced_over_saline_bolus_causal",
+                "rec_53_55_norepi_first_line_causal",
+                "rec_56_vasopressin_after_escalating_norepi_causal",
+                "rec_68_first_oxygen_hfnc_causal",
+                "rec_89_active_fluid_removal_7d_causal",
+                "rec_90_restrictive_transfusion_causal",
+                "rec_91_early_enteral_nutrition_causal",
+                "rec_92_insulin_started_at_glucose_180_causal",
+                "rec_96_sodium_bicarb_causal"))
 
 ## Sepsis Outcomes
 outcomes <- c("mort_28d",
@@ -325,8 +335,7 @@ run_grid <- function() {
       cli::cli_progress_update(id = pb)
       
       tryCatch(
-        run_dml(rec = get(r$rec_dt),
-                treat_col = r$treat_col,
+        run_dml(treat_col = r$treat_col,
                 outcome_col = grid$outcome[i],
                 tier = grid$tier[i],
                 W = W),
@@ -348,8 +357,10 @@ run_grid <- function() {
                      ci_hi = NA_real_,
                      pval = NA_real_,
                      ps_p01 = NA_real_,
-                     ps_p99 = NA_real_)
-          }) 
+                     ps_p99 = NA_real_,
+                     rv = NA_real_,
+                     rva = NA_real_)
+          })
       }),
     
     fill = TRUE)
@@ -432,10 +443,12 @@ final <- res[order(outcome,
                pval, 
                p_adj, 
                significant,
-               ps_p01, 
-               ps_p99, 
+               ps_p01,
+               ps_p99,
                evalue_point,
-               evalue_ci)]
+               evalue_ci,
+               rv,
+               rva)]
 
 ## the candidate findings: primary tier, FDR-significant, good overlap
 final[tier == "well_observed" & 
