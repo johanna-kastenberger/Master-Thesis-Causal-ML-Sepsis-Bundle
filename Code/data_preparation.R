@@ -833,12 +833,9 @@ chartevents_patterns <- c("height",
                           
                           "Hemoglobin",
                           
-                          "Glucose (serum)",
-                          "Glucose finger stick (range 70-100)",
-                          "Glucose (whole blood)",
-                          "Glucose (whole blood) (soft)",
+                          "Glucose",
                           
-                          "PH (Arterial)",
+                          "^PH ",
                           
                           "Creatinine (serum)",
                           
@@ -866,28 +863,76 @@ if (!file.exists(here::here("Data/all_chartevents.rds"))) {
 ## String of target lab item IDs
 sql_chart_itemids <- paste(unique(chart_itemids$itemid), collapse = ", ")
 
-## Pull relevant chartevents
-## This includes ICU bedside measurements: heart rate, blood pressure, respiratory 
-## rate, temperature, SpO₂, GCS, FiO₂, PEEP, plateau pressure, tidal volume, height, 
-## MAP, and oxygen device. These are needed for hemodynamics, ventilation, oxygenation, 
-## and monitoring variables.
-sql_chartevents <- glue::glue("
-  SELECT 
-  subject_id,
-  hadm_id,
-  stay_id, 
-  charttime, 
-  itemid, 
-  valuenum, 
-  value, 
-  valueuom
-  FROM {icu_db}.chartevents
-  WHERE subject_id IN ({subject_ids_sql_list}) AND itemid IN ({sql_chart_itemids})")
+## chunk subjects so each BigQuery fetch is small enough for R to hold
+chart_subjects <- unique(base_cohort$subject_id)
 
-all_chartevents <- run_query(sql_chartevents)
-saveRDS(all_chartevents, here::here("Data/all_chartevents.rds"))
+chart_chunks <- split(chart_subjects,
+                      ceiling(seq_along(chart_subjects) / 2000))
+
+chart_list <- vector("list",
+                     length(chart_chunks))
+
+for (i in seq_along(chart_chunks)) {
+  
+  ids_i <- paste(chart_chunks[[i]], collapse = ", ")
+  
+  sql_i <- glue::glue("
+                      SELECT
+                      subject_id,
+                      hadm_id,
+                      stay_id,
+                      charttime,
+                      itemid,
+                      valuenum,
+                      value,
+                      valueuom
+                      FROM {icu_db}.chartevents
+                      WHERE subject_id IN ({ids_i}) AND itemid IN
+                      ({sql_chart_itemids})")
+  
+  chart_list[[i]] <- run_query(sql_i) %>% 
+    setDT()
+  
+  cat("chunk", i, "of", length(chart_chunks),
+      "- rows:", nrow(chart_list[[i]]), "\n")
+  
+  gc()
+}
+
+all_chartevents <- rbindlist(chart_list,
+                             use.names = TRUE,
+                             fill = TRUE)
+
+saveRDS(all_chartevents,
+        here::here("Data/all_chartevents.rds"))
+
+rm(chart_list)
+gc()
 
 }
+
+# ## Pull relevant chartevents
+# ## This includes ICU bedside measurements: heart rate, blood pressure, respiratory 
+# ## rate, temperature, SpO₂, GCS, FiO₂, PEEP, plateau pressure, tidal volume, height, 
+# ## MAP, and oxygen device. These are needed for hemodynamics, ventilation, oxygenation, 
+# ## and monitoring variables.
+# sql_chartevents <- glue::glue("
+#   SELECT 
+#   subject_id,
+#   hadm_id,
+#   stay_id, 
+#   charttime, 
+#   itemid, 
+#   valuenum, 
+#   value, 
+#   valueuom
+#   FROM {icu_db}.chartevents
+#   WHERE subject_id IN ({subject_ids_sql_list}) AND itemid IN ({sql_chart_itemids})")
+# 
+# all_chartevents <- run_query(sql_chartevents)
+# saveRDS(all_chartevents, here::here("Data/all_chartevents.rds"))
+
+
 
 all_chartevents <- readRDS(here::here("Data/all_chartevents.rds")) %>% 
   setDT()
