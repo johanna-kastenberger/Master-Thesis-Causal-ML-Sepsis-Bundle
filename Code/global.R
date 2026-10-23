@@ -9,6 +9,7 @@ library(glue)
 library(stringr)
 library(flowchart)
 library(arrow)
+library(kableExtra)
 
 ## Link Big Query Data
 library(bigrquery)

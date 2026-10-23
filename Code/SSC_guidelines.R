@@ -28,13 +28,13 @@ ssc_guidelines[rec_num == 1,
                `:=` (rec_label = "For hospitals and health systems, we recommend using 
                a performance improvement program for sepsis, including sepsis screening 
                for acutely ill, high-risk patients; standard operating procedures 
-               for treatment; and implementation of spesis quality improvement strategies.",
+               for treatment; and implementation of sepsis quality improvement strategies.",
                      
                      rec_type = "strong recommendation",
                      
                      rec_use = "no",
                      
-                     reason = "no direct and measurable therapeutic impact",
+                     reason = "no direct or measurable therapeutic impact",
                      
                      rec_origin = "carryover")] 
 
@@ -46,7 +46,7 @@ ssc_guidelines[rec_num == 2,
                      
                      rec_use = "no",
                      
-                     reason = "no measurable therapeutic impact",
+                     reason = "no direct or measurable therapeutic impact",
                      
                      rec_origin = "new")]
 
@@ -59,7 +59,7 @@ ssc_guidelines[rec_num == 3,
                      
                      rec_use = "no",
                      
-                     reason = "no measurable therapeutic impact",
+                     reason = "no direct or measurable therapeutic impact",
                      
                      rec_origin = "new")]
 
@@ -70,9 +70,9 @@ ssc_guidelines[rec_num == 4,
                      
                      rec_type = "strong recommendation",
                      
-                     rec_use = "yes",
+                     rec_use = "no",
                      
-                     reason = "no measurable therapetic impact",
+                     reason = "no direct or measurable therapeutic impact",
                      
                      rec_origin = "new")]
 
@@ -84,7 +84,7 @@ ssc_guidelines[rec_num == 5,
                      
                      rec_use = "no",
                      
-                     reason = "not measurable",
+                     reason = "no direct or measurable therapeutic impact",
                      
                      rec_origin = "new")]
 
@@ -131,7 +131,7 @@ ssc_guidelines[rec_num == 9,
                      
                      rec_use = "no",
                      
-                     reason = "no measurable therapeutic impact",
+                     reason = "no direct or measurable therapeutic impact",
                      
                      rec_origin = "carryover")]
 
@@ -142,7 +142,7 @@ ssc_guidelines[rec_num == 10,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = "candidate include",
+                     rec_use = "yes",
                      
                      reason = ">= 30ml/kg of crystalloid fluid (isotonic saline or 
                      lactate ringer) within the first 3 hr of resuscitation",
@@ -156,10 +156,9 @@ ssc_guidelines[rec_num == 11,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = "no, but exploratory analysis",
+                     rec_use = "no",
                      
-                     reason = "Cannot reliably infer whether early vasopressors were 
-                     inappropriate or clinically justified",
+                     reason = "no direct or measurable therapeutic impact",
                      
                      rec_origin = "new")]
 
@@ -170,13 +169,9 @@ ssc_guidelines[rec_num == 12,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = "no, but exploratory analysis",
+                     rec_use = "no",
                      
-                     reason = "This is a treatment-process recommendation, but compliance 
-                     depends on knowing whether vasopressors were delayed because of 
-                     central access. MIMIC-IV/eICU can often identify vasopressor start 
-                     time and sometimes central line procedures, but not the clinical 
-                     reason for delay.",
+                     reason = "no direct or measurable therapeutic impact",
                      
                      rec_origin = "new")]
 
@@ -202,8 +197,6 @@ ssc_guidelines[rec_num == 14,
                      
                      rec_use = "yes",
                      
-                     reason = "technically feasible in data",
-                     
                      rec_origin = "new")]
 
 ssc_guidelines[rec_num == 15,
@@ -214,8 +207,6 @@ ssc_guidelines[rec_num == 15,
                      rec_type = "conditional recommendation",
                      
                      rec_use = "yes",
-                     
-                     reason = "ICU intime - suspetected infection time",
                      
                      rec_origin = "carryover")]
 
@@ -232,8 +223,6 @@ ssc_guidelines[rec_num == 16,
                      
                      rec_use = "yes",
                      
-                     reason = "bundle variable from 2021 paper",
-                     
                      rec_origin = "revisited")]
 
 ssc_guidelines[rec_num == 17,
@@ -244,8 +233,6 @@ ssc_guidelines[rec_num == 17,
                      rec_type = "strong recommendation",
                      
                      rec_use = "yes",
-                     
-                     reason = "maybe merge with recommendation 16",
                      
                      rec_origin = "revisited")]
 
@@ -258,9 +245,9 @@ ssc_guidelines[rec_num == 18,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = "yes",
+                     rec_use = "no",
                      
-                     reason = NA_character_,
+                     reason = "no direct or measurable therapeutic impact",
                      
                      rec_origin = "revisited")]
 
@@ -273,7 +260,7 @@ ssc_guidelines[rec_num == 19,
                      
                      rec_use = "no",
                      
-                     reason = "no direct measurable therapeutic impact",
+                     reason = "no direct or measurable therapeutic impact",
                      
                      rec_origin = "revisited")]
 
@@ -286,7 +273,7 @@ ssc_guidelines[rec_num == 20,
                      
                      rec_use = "no",
                      
-                     reason = "negative recommendation",
+                     reason = "no direct or measurable therapeutic impact",
                      
                      rec_origin = "revisited")]
 
@@ -301,8 +288,7 @@ ssc_guidelines[rec_num == 21,
                      
                      rec_use = "no",
                      
-                     reason = "data mostly begins at ICU/hospital intake, no reliable 
-                     data available prior",
+                     reason = "no direct or measurable therapeutic impact",
                      
                      rec_origin = "new")]
 
@@ -316,7 +302,7 @@ ssc_guidelines[rec_num == 22,
                      
                      rec_use = "no",
                      
-                     reason = "no directly measurable therapeutic impact",
+                     reason = "no direct or measurable therapeutic impact",
                      
                      rec_origing = "new")]
 
@@ -329,7 +315,7 @@ ssc_guidelines[rec_num == 23,
                      
                      rec_use = "no",
                      
-                     reason = "no measurable therapeutic impact")]
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 24,
                `:=` (rec_label = "For adults with sepsis or septic shock and a specific 
@@ -339,10 +325,9 @@ ssc_guidelines[rec_num == 24,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = "maybe",
+                     rec_use = "no",
                      
-                     reason = "hard to determine patients who truly required source 
-                     control",
+                     reason = "not encodable",
                      
                      rec_origin = "revisited")]
 
@@ -354,17 +339,19 @@ ssc_guidelines[rec_num == 25,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "not encodable")]
 
 ssc_guidelines[rec_num == 26,
                `:=` (rec_label = "For adults with sepsis or septic shock at low 
-                     risk of infeciton with a specific multidrug resistant (MDR) 
+                     risk of infection with a specific multidrug resistant (MDR) 
                      pathogen, we suggest against using empirical antimicrobial 
                      therapy with coverage for this MDR pathogen.",
                      
                      rec_type = "conditional recommendation against",
                      
-                     rec_use = "no, negative recommendation",
+                     rec_use = "no",
                     
                      reason = "negative recommendation",
                      
@@ -376,7 +363,7 @@ ssc_guidelines[rec_num == 27,
                      
                      rec_type = "conditional recommendation against",
                      
-                     rec_use = "no, negative recommendation",
+                     rec_use = "no",
                      
                      reason = "negative recommendation",
                      
@@ -391,7 +378,7 @@ ssc_guidelines[rec_num == 28,
                      
                      rec_use = "no",
                      
-                     reason = "negative recommendation",
+                     reason = "not encodable",
                      
                      rec_origing = "revisited")]
 
@@ -404,8 +391,7 @@ ssc_guidelines[rec_num == 29,
                      
                      rec_use = "no",
                      
-                     reason = "risk factors for anaerobic infection is not reliably 
-                     available in the data",
+                     reason = "not encodable",
                      
                      rec_origin = "new")]
 
@@ -419,7 +405,7 @@ ssc_guidelines[rec_num == 30,
                      
                      rec_use = "no",
                      
-                     reason = "not encodable in data",
+                     reason = "insufficient evidence",
                      
                      rec_origin = "new")]
 
@@ -434,7 +420,7 @@ ssc_guidelines[rec_num == 31,
                      
                      rec_use = "no",
                      
-                     reason = "not encodable in data",
+                     reason = "not encodable",
                      
                      rec_origin = "new")]
 
@@ -445,7 +431,7 @@ ssc_guidelines[rec_num == 32,
                      
                      rec_type = "conditional recommendation against",
                      
-                     rec_use = "no, negative recommendation",
+                     rec_use = "no",
                      
                      reason = "negative recommendation",
                      
@@ -458,18 +444,22 @@ ssc_guidelines[rec_num == 33,
                      
                      rec_type = "strong recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "not encodable")]
 
 ssc_guidelines[rec_num == 34,
                `:=` (rec_label = "For adults with sepsis or septic shock, we suggest 
                      using antimicrobial therapeutic drug monitoring (TDM) on a 
-                     case-by-case basisin selected patients, based on clinical features, 
+                     case-by-case basis in selected patients, based on clinical features, 
                      local pathogen- and resistance patterns, drug class, and availability 
                      of TDM.",
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 35,
                `:=` (rec_label = "Clinicians should continuously reevaluate patients, 
@@ -480,7 +470,9 @@ ssc_guidelines[rec_num == 35,
                      
                      rec_type = "good practice statement",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 36,
                `:=` (rec_label = "For adults with sepsis or septic shock, we 
@@ -490,16 +482,20 @@ ssc_guidelines[rec_num == 36,
                      
                      rec_type = "strong recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "not encodable")]
 
 ssc_guidelines[rec_num == 37,
                `:=` (rec_label = "For adults with sepsis or septic shock, we suggest 
                      de-escalation of antimicrobial therapy over no de-escalation 
                      when no pathogens are identified on final culture results.",
                      
-                     rec_type = "conditional reccomendation",
+                     rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "not encodable")]
 
 ssc_guidelines[rec_num == 38,
                `:=` (rec_label = "For adults with sepsis or septic shock who are 
@@ -509,7 +505,9 @@ ssc_guidelines[rec_num == 38,
                      
                      rec_type = "conditional recommendation against",
                      
-                     rec_use = "no, negative recommendation")]
+                     rec_use = "no",
+                     
+                     reason = "negative recommendation")]
 
 ssc_guidelines[rec_num == 39,
                `:=` (rec_label = "For adults with an initial diagnosis of sepsis 
@@ -518,7 +516,9 @@ ssc_guidelines[rec_num == 39,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "not encodable")]
 
 ssc_guidelines[rec_num == 40,
                `:=` (rec_label = "For adults with an initial diagnosis of sepsis 
@@ -529,7 +529,9 @@ ssc_guidelines[rec_num == 40,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 41,
                `:=` (rec_label = "In mechanically ventilated adults with sepsis or 
@@ -539,7 +541,9 @@ ssc_guidelines[rec_num == 41,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ## Hemodynamic Management
 
@@ -549,7 +553,7 @@ ssc_guidelines[rec_num == 42,
                      
                      rec_type = "prior conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "yes")]
 
 
 ssc_guidelines[rec_num == 43,
@@ -567,7 +571,7 @@ ssc_guidelines[rec_num == 44,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "yes")]
 
 ssc_guidelines[rec_num == 45,
                `:=` (rec_label = "For adults with sepsis or septic shock, we suggest 
@@ -576,7 +580,7 @@ ssc_guidelines[rec_num == 45,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "yes")]
 
 ssc_guidelines[rec_num == 46,
                `:=` (rec_label = "For adults with sepsis or septic shock, we recommend 
@@ -584,7 +588,9 @@ ssc_guidelines[rec_num == 46,
                      
                      rec_type = "strong recommendation against",
                      
-                     rec_use = "no, negative recommendation")]
+                     rec_use = "no",
+                     
+                     reason = "negative recommendation")]
 
 ssc_guidelines[rec_num == 47,
                `:=` (rec_label = "For adults with sepsis and septic shock, we suggest 
@@ -592,7 +598,9 @@ ssc_guidelines[rec_num == 47,
                      
                      rec_type = "conditional recommendation against",
                      
-                     rec_use = "no, negative recommendation")]
+                     rec_use = "no",
+                     
+                     reason = "negative recommendation")]
 
 ssc_guidelines[rec_num == 48,
                `:=` (rec_label = "For adults with sepsis or septic shock who have 
@@ -603,7 +611,9 @@ ssc_guidelines[rec_num == 48,
                      
                      rec_type = "none",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 49,
                `:=` (rec_label = "For adults with sepsis or septic shock, we suggest 
@@ -612,34 +622,42 @@ ssc_guidelines[rec_num == 49,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 50,
                `:=` (rec_label = "For adults with septic shock, there is insufficient 
                      evidence to make a recommendation on using minimally invasive or 
                      non-invasive cardiac output monitoring in addition to usual care.",
                      
-                     rec_type = "none",
+                     rec_type = "insufficient evidence",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "insufficient evidence")]
 
 ssc_guidelines[rec_num == 51,
                `:=` (rec_label = "For adults with sepsis and elevated lactate or
-                     septic shock, we suggest using serial lactate measrements to 
+                     septic shock, we suggest using serial lactate measurements to 
                      guide resuscitation.",
                      
-                     rec_use = "conditional recommendation",
+                     rec_type = "conditional recommendation",
                      
-                     rec_type = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 52,
                `:=` (rec_label = "For adults with sepsis or septic shock, we suggest 
                      using capillary refill time to guide resuscitation as an adjunct
                      to other measures or perfusion.",
                      
-                     rec_use = "conditional recommendation",
+                     rec_type = "conditional recommendation",
                      
-                     rec_type = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 53,
                `:=` (rec_label = "For adults with septic shock, we recommend using 
@@ -648,7 +666,7 @@ ssc_guidelines[rec_num == 53,
                      
                      rec_type = "strong recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "yes")]
 
 ssc_guidelines[rec_num == 54,
                `:=` (rec_label = "For adults with septic shock, we suggest against 
@@ -656,7 +674,9 @@ ssc_guidelines[rec_num == 54,
                      
                      rec_type = "conditional recommendation against",
                      
-                     rec_use = "no, negative recommendation")]
+                     rec_use = "no",
+                     
+                     reason = "negative recommendation")]
 
 ssc_guidelines[rec_num == 55,
                `:=` (rec_label = "For adults with septic shock, we suggest using 
@@ -665,7 +685,7 @@ ssc_guidelines[rec_num == 55,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "yes")]
 
 ssc_guidelines[rec_num == 56,
                `:=` (rec_label = "For adults with septic shock on escalating doses 
@@ -673,7 +693,7 @@ ssc_guidelines[rec_num == 56,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "yes")]
 
 ssc_guidelines[rec_num == 57,
                `:=` (rec_label = "For adults with septic shock and inadequate MAP 
@@ -682,7 +702,7 @@ ssc_guidelines[rec_num == 57,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "yes")]
 
 ssc_guidelines[rec_num == 58,
                `:=` (rec_label = "For adults with septic shock with concomitant
@@ -691,16 +711,20 @@ ssc_guidelines[rec_num == 58,
                      
                      rec_type = "none",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "not encodable")]
 
 ssc_guidelines[rec_num == 59,
                `:=` (rec_label = "For adults with refractory septic shock and escalating 
                      vasopressor requirements, there is insufficient evidence to make 
                      a recommendation on IV methylene blue.",
                      
-                     rec_type = "none",
+                     rec_type = "insufficient evidence",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "insufficient evidence")]
 
 ssc_guidelines[rec_num == 60,
                `:=` (rec_label = "For adults with septic shock and cardiac dysfunction
@@ -710,7 +734,9 @@ ssc_guidelines[rec_num == 60,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "not encodable")]
 
 ssc_guidelines[rec_num == 61,
                `:=` (rec_label = "For adults with septic shock with persistent
@@ -720,7 +746,9 @@ ssc_guidelines[rec_num == 61,
                      
                      rec_type = "none",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "not encodable")]
 
 ssc_guidelines[rec_num == 62,
                `:=` (rec_label = "For adults with shock and cardiac dysfunction 
@@ -729,16 +757,20 @@ ssc_guidelines[rec_num == 62,
                      
                      rec_type = "conditional recommendation against",
                      
-                     rec_use = "no, negative recommendation")]
+                     rec_use = "no",
+                     
+                     reason = "negative recommendation")]
 
 ssc_guidelines[rec_num == 63,
                `:=` (rec_label = "For adults with septic shock and ongoing requirement 
                      for vasopressors, there is insufficient evidence to make a 
                      recommendation on use of oral midodrine.",
                      
-                     rec_type = "none",
+                     rec_type = "insufficient evidence",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "insufficient evidence")]
 
 ssc_guidelines[rec_num == 64,
                `:=` (rec_label = "For adults with septic shock, we suggest against 
@@ -746,7 +778,9 @@ ssc_guidelines[rec_num == 64,
                      
                      rec_type = "conditional recommendation against",
                      
-                     rec_use = "no, negative recommendation")]
+                     rec_use = "no",
+                     
+                     reason = "negative recommendation")]
 
 ## Respiratory Support
 
@@ -757,7 +791,9 @@ ssc_guidelines[rec_num == 65,
                      
                      rec_type = "none",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 66,
                `:=` (rec_label = "For adults with sepsis and acute hypoxemic respiratory 
@@ -767,7 +803,9 @@ ssc_guidelines[rec_num == 66,
                      
                      rec_type = "none",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 67,
                `:=` (rec_label = "For adults with sepsis and acute hypoxemic respiratory 
@@ -776,7 +814,7 @@ ssc_guidelines[rec_num == 67,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "yes")]
 
 ssc_guidelines[rec_num == 68,
                `:=` (rec_label = "For adults with sepsis and acute hypoxemic respiratory 
@@ -785,7 +823,7 @@ ssc_guidelines[rec_num == 68,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "yes")]
 
 ssc_guidelines[rec_num == 69,
                `:=` (rec_label = "For adults with sepsis and acute hypoxemic respiratory 
@@ -794,7 +832,7 @@ ssc_guidelines[rec_num == 69,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "yes")]
 
 ssc_guidelines[rec_num == 70,
                `:=` (rec_label = "For adults with sepsis and acute hypoxemic respiratory 
@@ -802,7 +840,9 @@ ssc_guidelines[rec_num == 70,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "not encodable")]
 
 ssc_guidelines[rec_num == 71,
                `:=` (rec_label = "For adults with sepsis and ARDS, we recommend 
@@ -814,22 +854,24 @@ ssc_guidelines[rec_num == 71,
                      rec_use = "yes")]
 
 ssc_guidelines[rec_num == 72,
-               `:=` (rec_label = "For adults with sepsis acute hypoxemic respiratory 
+               `:=` (rec_label = "For adults with sepsis and acute hypoxemic respiratory 
                      failure without ARDS, we suggest using a tidal volume of 6-8 ml/kg 
                      IBW over a lower (4 to <6 ml/kg IBW) tidal volume.",
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "not encodable")]
 
 ssc_guidelines[rec_num == 73,
                `:=` (rec_label = "For adults with sepsis and ARDS, we recommend 
-                     using an upper limited goal for plateau pressure of 30 cm H20 
+                     using an upper limi goal for plateau pressure of 30 cm H20 
                      over higher plateau pressures.",
                      
                      rec_type = "strong recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "yes")]
 
 ssc_guidelines[rec_num == 74,
                `:=` (rec_label = "For adults with sepsis and moderate-severe ARDS, 
@@ -837,7 +879,9 @@ ssc_guidelines[rec_num == 74,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "not encodable")]
 
 ssc_guidelines[rec_num == 75,
                `:=` (rec_label = "For adults with sepsis and moderate-severe ARDS, 
@@ -845,7 +889,9 @@ ssc_guidelines[rec_num == 75,
                      
                      rec_type = "strong recommendation against",
                      
-                     rec_use = "no, negative recommendation")]
+                     rec_use = "no",
+                     
+                     reason = "negative recommendation")]
 
 ssc_guidelines[rec_num == 76,
                 `:=` (rec_label = "For adults with sepsis and moderate-severe ARDS, 
@@ -854,7 +900,9 @@ ssc_guidelines[rec_num == 76,
                       
                       rec_type = "conditional recommendation",
                       
-                      rec_use = NA_character_)]
+                      rec_use = "no",
+                      
+                      reason = "not encodable")]
 
 ssc_guidelines[rec_num == 77,
                `:=` (rec_label = "For adults with sepsis and moderate-severe ARDS, 
@@ -863,7 +911,9 @@ ssc_guidelines[rec_num == 77,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "not encodable")]
 
 ssc_guidelines[rec_num == 78,
                `:=` (rec_label = "For adults with severe ARDS due to sepsis, we 
@@ -873,7 +923,9 @@ ssc_guidelines[rec_num == 78,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "not encodable")]
 
 ## Additional and Adjunctive Therapies
 
@@ -883,7 +935,7 @@ ssc_guidelines[rec_num == 79,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "yes")]
 
 ssc_guidelines[rec_num == 80,
                `:=` (rec_label = "For adults with sepsis or septic shock and fever, 
@@ -893,7 +945,9 @@ ssc_guidelines[rec_num == 80,
                      
                      rec_type = "conditonal negative recommendation",
                      
-                     rec_use = "no, negative recommendation")]
+                     rec_use = "no",
+                     
+                     reason = "negative recommendation")]
 
 ssc_guidelines[rec_num == 81,
                `:=` (rec_label = "For adults with sepsis or septic shock, we suggest 
@@ -901,7 +955,9 @@ ssc_guidelines[rec_num == 81,
                      
                      rec_type = "conditional recommendation against",
                      
-                     rec_use = "no, negative recommendation")]
+                     rec_use = "no",
+                     
+                     reason = "negative recommendation")]
 
 ssc_guidelines[rec_num == 82,
                `:=` (rec_label = "For adults with sepsis or septic shock, we suggest 
@@ -909,7 +965,9 @@ ssc_guidelines[rec_num == 82,
                      
                      rec_type = "conditional recommendation against",
                      
-                     rec_use = "no, negative recommendation")]
+                     rec_use = "no",
+                     
+                     reason = "negative recommendation")]
 
 ssc_guidelines[rec_num == 83,
                `:=` (rec_label = "For adults with sepsis or septic shock, we suggest
@@ -918,7 +976,9 @@ ssc_guidelines[rec_num == 83,
                      
                      rec_type = "conditional reccomendation against",
                      
-                     rec_use = "no, negative recommendation")]
+                     rec_use = "no",
+                     
+                     reason = "negative recommendation")]
 
 ssc_guidelines[rec_num == 84,
                `:=` (rec_label = "For adults with sepsis or septic shock, we suggest
@@ -926,7 +986,9 @@ ssc_guidelines[rec_num == 84,
                      
                      rec_type = "conditional recommendation against",
                      
-                     rec_use = "no, negative recommendation")]
+                     rec_use = "no",
+                     
+                     reason = "negative recommendation")]
 
 ssc_guidelines[rec_num == 85,
                `:=` (rec_label = "For adults with sepsis or septic shock, we suggest 
@@ -934,7 +996,9 @@ ssc_guidelines[rec_num == 85,
                      
                      rec_type = "conditional recommendation against",
                      
-                     rec_use = "no, negative reccomendation")]
+                     rec_use = "no",
+                     
+                     reason = "negative recommendation")]
 
 ssc_guidelines[rec_num == 86,
                `:=` (rec_label = "For adults with sepsis or septic shock, we suggest 
@@ -943,7 +1007,9 @@ ssc_guidelines[rec_num == 86,
                      
                      rec_type = "conditional recommendation against",
                      
-                     rec_use = "no, negative recommendation")]
+                     rec_use = "no",
+                     
+                     reason = "negative recommendation")]
 
 ssc_guidelines[rec_num == 87,
                `:=` (rec_label = "For adults with sepsis or septic shock, and who 
@@ -953,7 +1019,9 @@ ssc_guidelines[rec_num == 87,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "not encodable")]
 
 ssc_guidelines[rec_num == 88,
                `:=` (rec_label = "For adults with sepsis or septic shock, we suggest
@@ -961,7 +1029,9 @@ ssc_guidelines[rec_num == 88,
                      
                      rec_type = "conditional recommendation against",
                      
-                     rec_use = "no, negative recommendation")]
+                     rec_use = "no",
+                     
+                     reason = "negative recommendation")]
 
 ssc_guidelines[rec_num == 89,
                `:=` (rec_label = "For adults with septic shock after the acute 
@@ -976,7 +1046,7 @@ ssc_guidelines[rec_num == 89,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = "no, negative recommendation")]
+                     rec_use = "yes")]
 
 ssc_guidelines[rec_num == 90,
                `:=` (rec_label = "For adults with sepsis or septic shock, we recommend
@@ -985,7 +1055,7 @@ ssc_guidelines[rec_num == 90,
                      
                      rec_type = "strong recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "yes")]
 
 ssc_guidelines[rec_num == 91,
                `:=` (rec_label = "For adults with sepsis or septic shock, we suggest 
@@ -993,7 +1063,7 @@ ssc_guidelines[rec_num == 91,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "yes")]
 
 ssc_guidelines[rec_num == 92,
                `:=` (rec_label = "For adults with sepsis or septic shock, we recommend 
@@ -1002,7 +1072,7 @@ ssc_guidelines[rec_num == 92,
                      
                      rec_type = "strong recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "yes")]
 
 ssc_guidelines[rec_num == 93,
                `:=` (rec_label = "For adults with sepsis or septic shock and acute 
@@ -1011,7 +1081,9 @@ ssc_guidelines[rec_num == 93,
                      
                      rec_type = "conditional recommendation against",
                      
-                     rec_use = "no, negative recommendation")]
+                     rec_use = "no",
+                     
+                     reason = "negative recommendation")]
 
 ssc_guidelines[rec_num == 94,
                `:=` (rec_label = "For adults with sepsis or septic shock and acute 
@@ -1020,7 +1092,9 @@ ssc_guidelines[rec_num == 94,
                      
                      rec_type = "none",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "not encodable")]
 
 ssc_guidelines[rec_num == 95,
                `:=` (rec_label = "For adults with septic shock and hypoperfusion-induced
@@ -1029,7 +1103,9 @@ ssc_guidelines[rec_num == 95,
                      
                      rec_type = "conditional recommendation against",
                      
-                     rec_use = "no, negative recommendation")]
+                     rec_use = "no",
+                     
+                     reason = "negative recommendation")]
 
 ssc_guidelines[rec_num == 96,
                `:=` (rec_label = "For adults with septic shock, severe metabolic 
@@ -1038,16 +1114,18 @@ ssc_guidelines[rec_num == 96,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "yes")]
 
 ssc_guidelines[rec_num == 97,
                `:=` (rec_label = "For adults with sepsis or septic shock, we recommend
-                     using pharmacologic venous thromboembolism (VTE) prohylaxis unless 
+                     using pharmacologic venous thromboembolism (VTE) prophylaxis unless 
                      a contraindication exists.",
                      
                      rec_type = "strong recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "not encodable")]
 
 ssc_guidelines[rec_num == 98,
                `:=` (rec_label = "For adults with sepsis or septic shock, we recommend 
@@ -1056,7 +1134,7 @@ ssc_guidelines[rec_num == 98,
                      
                      rec_type = "strong recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "yes")]
 
 ssc_guidelines[rec_num == 99,
                `:=` (rec_label = "For adults with sepsis or septic shock, we suggest 
@@ -1065,17 +1143,21 @@ ssc_guidelines[rec_num == 99,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "not encodable")]
 
 ## Goals of Care
 
 ssc_guidelines[rec_num == 100,
-               `:=` (rec_label = "For adults with sepsis or sepsis shock, clinicians should 
+               `:=` (rec_label = "For adults with sepsis or septic shock, clinicians should 
                      discuss goals of care and prognosis with patients and/or families.",
                      
                      rec_type = "good practice statement",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 101,
                `:=` (rec_label = "For adults with sepsis or septic shock, we suggest
@@ -1084,7 +1166,9 @@ ssc_guidelines[rec_num == 101,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 102,
                 `:=` (rec_label = "For adults with sepsis or septic shock, there 
@@ -1094,7 +1178,9 @@ ssc_guidelines[rec_num == 102,
                       
                       rec_type = "insufficent evidence",
                       
-                      rec_use = "no")]
+                      rec_use = "no",
+                      
+                      reason = "insufficient evidence")]
 
 ssc_guidelines[rec_num == 103,
                `:=` (rec_label = "Health systems should implement strategies to 
@@ -1103,7 +1189,9 @@ ssc_guidelines[rec_num == 103,
                      
                      rec_type = "good practice statement",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 104,
                `:=` (rec_label = "For adults with sepsis or septic shock, there 
@@ -1113,7 +1201,9 @@ ssc_guidelines[rec_num == 104,
                      
                      rec_type = "insufficient evidence",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "insufficient evidence")]
 
 ssc_guidelines[rec_num == 105,
                `:=` (rec_label = "For adults with sepsis or septic shock, there
@@ -1122,7 +1212,9 @@ ssc_guidelines[rec_num == 105,
                      
                      rec_type = "insufficient evidence",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "insufficient evidence")]
 
 ssc_guidelines[rec_num == 106,
                `:=` (rec_label = "The principles of palliative care (which may include
@@ -1132,17 +1224,21 @@ ssc_guidelines[rec_num == 106,
                      
                      rec_type = "good practice statement",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 107,
                `:=` (rec_label = "For adults with sepsis or septic shock, we suggest
                      against routine formal palliative care consultation for all 
-                     patients over palliative care consultation basaed on clinician 
+                     patients over palliative care consultation based on clinician 
                      judgement.",
                      
                      rec_type = "conditional recommendation against",
                      
-                     rec_use = "no, negative recommendation")]
+                     rec_use = "no",
+                     
+                     reason = "negative recommendation")]
 
 ## Transitions of Care
 
@@ -1153,7 +1249,9 @@ ssc_guidelines[rec_num == 108,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 109,
                `:=` (rec_label = "For adults with sepsis or septic shock, we suggest 
@@ -1162,17 +1260,21 @@ ssc_guidelines[rec_num == 109,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 110,
                `:=` (rec_label = "Hospitals and health systems should screen patients 
                      with sepsis or septic shock for economic and social support needs
-                     (including housing, nutrional, financial, and spiritual support) 
+                     (including housing, nutritional, financial, and spiritual support) 
                      and make referrals where available to meet these needs.",
                      
                      rec_type = "good practice statement",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 111,
                `:=` (rec_label = "For adults with sepsis or septic shock, comprehensive 
@@ -1181,7 +1283,9 @@ ssc_guidelines[rec_num == 111,
                      
                      rec_type = "good practice statement",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 112,
                `:=` (rec_label = "For adults with sepsis or septic shock, we suggest 
@@ -1190,20 +1294,24 @@ ssc_guidelines[rec_num == 112,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 113,
                `:=` (rec_label = "Clinical teams should provide adults with sepsis 
                      or septic shock and their families the opportunity to participate 
-                     in shared decision making in post-ICU and hospital dischare planning 
+                     in shared decision making in post-ICU and hospital discharge planning 
                      to ensure discharge plans are acceptable and feasible.",
                      
                      rec_type = "good practice statement",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 114,
-               `:=` (rec_label = "For adult survivors or sepsis or septic shock 
+               `:=` (rec_label = "For adult survivors of sepsis or septic shock 
                      and their families, clinicians should provide information about
                      the hospital stay, sepsis and related diagnoses, treatments, 
                      and common impairments after sepsis in the written and verbal 
@@ -1211,7 +1319,9 @@ ssc_guidelines[rec_num == 114,
                      
                      rec_type = "good practice statement",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 115,
                `:=` (rec_label = "For adults with sepsis or septic shock who developed 
@@ -1220,7 +1330,9 @@ ssc_guidelines[rec_num == 115,
                      
                      rec_type = "good practice statement",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 116,
                `:=` (rec_label = "Healthcare systems should implement strategies 
@@ -1230,7 +1342,9 @@ ssc_guidelines[rec_num == 116,
                      
                      rec_type = "good practice statement",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 117,
                `:=` (rec_label = "For adults who survive hospitalization with sepsis 
@@ -1240,18 +1354,22 @@ ssc_guidelines[rec_num == 117,
                      
                      rec_type = "insufficient evidence",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "insufficient evidence")]
 
 ssc_guidelines[rec_num == 118,
                `:=` (rec_label = "For adult survivors of sepsis or septic shock and 
-                     their families, clinicians should provide information abot the 
-                     hospital stay, sepsis and related diagnose, treatments, and
+                     their families, clinicians should provide information about the 
+                     hospital stay, sepsis and related diagnoses, treatments, and
                      common impairments after sepsis in the written and verbal discharge
                      summary.",
                      
                      rec_type = "good practice statement",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 119,
                `:=` (rec_label = "For adults with sepsis and septic shock and their
@@ -1261,7 +1379,9 @@ ssc_guidelines[rec_num == 119,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 120,
                `:=` (rec_label = "Health systems should implement strategies to ensure 
@@ -1270,16 +1390,20 @@ ssc_guidelines[rec_num == 120,
                      
                      rec_type = "good practice statement",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 121,
                `:=` (rec_label = "There is insufficient evidence to issue a recommendation 
-                     regarding providing sepsis-focued educational material to primary 
+                     regarding providing sepsis-focused educational material to primary 
                      care providers as compared to usual care.",
                      
                      rec_type = "insufficient evidence",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "insufficient evidence")]
 
 ssc_guidelines[rec_num == 122,
                `:=` (rec_label = "Health systems should implement strategies to 
@@ -1288,7 +1412,9 @@ ssc_guidelines[rec_num == 122,
                      
                      rec_type = "good practice statement",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 123,
                `:=` (rec_label = "There is insufficient evidence to make a recommendation 
@@ -1297,18 +1423,22 @@ ssc_guidelines[rec_num == 123,
                      
                      rec_type = "insufficient evidence",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ## Long-Term Outcomes and Recovery
 
 ssc_guidelines[rec_num == 124,
                `:=` (rec_label = "Health systems should facilitate assessment and 
-                     follow-up for physical, cognitive, and emotional probelms after
+                     follow-up for physical, cognitive, and emotional problems after
                      hospital discharge for sepsis or septic shock.",
                      
                      rec_type = "good practice statement",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 125,
                `:=` (rec_label = "For adult survivors of hospitalization for sepsis 
@@ -1317,7 +1447,9 @@ ssc_guidelines[rec_num == 125,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 126,
                `:=` (rec_label = "For adult survivors of hospitalization for sepsis 
@@ -1327,7 +1459,9 @@ ssc_guidelines[rec_num == 126,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 127,
                `:=` (rec_label = "For adult survivors of hospitalization for sepsis
@@ -1336,53 +1470,127 @@ ssc_guidelines[rec_num == 127,
                      
                      rec_type = "conditional recommendation",
                      
-                     rec_use = NA_character_)]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 128,
                `:=` (rec_label = "Adult survivors of hospitalization for sepsis or 
-                     septic shock who demonstate clinical symptoms of mental health 
+                     septic shock who demonstrate clinical symptoms of mental health 
                      disorders should be referred to appropriate healthcare professionals
                      for evaluation and management.",
                      
                      rec_type = "good practice statement",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "no direct or measurable therapeutic impact")]
 
 ssc_guidelines[rec_num == 129,
                `:=` (rec_label = "For adult survivors of hospitalization for sepsis
                      or septic shock, there is insufficient evidence to issue a
-
                      recommendation regarding cognition-targeted therapies versus 
                      usual care.",
                     
                      rec_type = "insufficient evidence",
                      
-                     rec_use = "no")]
+                     rec_use = "no",
+                     
+                     reason = "insufficient evidence")]
 
+
+## Save SSC recommendations table
 ssc_guidelines %>% 
   copy() %>% 
-  .[rec_type %in% c("strong recommendation",
-                    "conditional recommendation",
-                    "prior conditional recommendation")] %>% 
-  # .[rec_use == "yes"] %>% 
-  .[, .(rec_num,
-        rec_label,
-        rec_type,
-        rec_cat)] %>% 
-  fwrite(
-    .,
-    sep = ";",
-    here::here("Data/ssc_recommendations.csv")
-  )
-
-ssc_guidelines %>% 
-  copy() %>% 
-  .[rec_type %in% c("strong recommendation",
-                    "conditional recommendation",
-                    "prior conditional recommendation")] %>% 
   .[, .(rec_num,
         rec_label,
         rec_type,
         rec_cat)] %>% 
   .[, rec_label := gsub("\\s*\\n\\s*", " ", rec_label)] %>% 
   saveRDS(., here::here("Data/ssc_recommendations.rds"))
+
+
+## All recommendations not encoded in the thesis
+ssc_excluded <- ssc_guidelines %>% 
+  copy() %>% 
+  .[rec_use == "no", .(rec_num,
+                       rec_label,
+                       rec_use,
+                       reason)]
+
+
+ssc_excluded_tex <- ssc_excluded %>% 
+  copy() %>% 
+  ## collapse the embedded line breaks in the free text
+  .[, rec_label := gsub("\\s*\\n\\s*",
+                        " ",
+                        rec_label)] %>% 
+  .[, reason := gsub("\\s*\\n\\s*",
+                     " ",
+                     reason)] %>% 
+  .[order(rec_num),
+    .(rec_num,
+      rec_label,
+      reason)]
+
+kbl(ssc_excluded_tex,
+    format = "latex",
+    booktabs = TRUE,
+    longtable = TRUE,
+    escape = TRUE,
+    col.names = c("Rec.",
+                  "Recommendation",
+                  "Reason for exclusion"),
+    caption = "Surviving Sepsis Campaign recommendations 2026 not encoded in this thesis, with the reason for exclusion",
+    label = "ssc-excluded",
+    linesep = "\\addlinespace[6pt]") %>% 
+  kable_styling(latex_options = "repeat_header",
+                font_size = 9) %>% 
+  column_spec(0.5,
+              width = "1cm") %>% 
+  column_spec(2,
+              width = "10cm") %>% 
+  column_spec(3,
+              width = "6.5cm") %>% 
+  cat(file = here::here("Outputs/ssc_excluded_table.tex"))
+
+
+## All 28 recommendations encoded in the thesis
+ssc_included <- ssc_guidelines %>% 
+  copy() %>% 
+  .[rec_use == "yes", .(rec_num,
+                        rec_label,
+                        rec_use,
+                        reason)]
+
+ssc_included_tex <- ssc_included %>% 
+  copy() %>% 
+  ## collapse the embedded line breaks in the free text
+  .[, rec_label := gsub("\\s*\\n\\s*",
+                        " ",
+                        rec_label)] %>% 
+  .[, reason := gsub("\\s*\\n\\s*",
+                     " ",
+                     reason)] %>% 
+  .[order(rec_num),
+    .(rec_num,
+      rec_label)]
+
+kbl(ssc_included_tex,
+    format = "latex",
+    booktabs = TRUE,
+    longtable = TRUE,
+    escape = TRUE,
+    col.names = c("Rec.",
+                  "Recommendation"),
+    caption = "Surviving Sepsis Campaign 2026 recommendations encoded in this thesis",
+    label = "ssc-included",
+    linesep = "\\addlinespace[6pt]") %>% 
+  kable_styling(latex_options = "repeat_header",
+                font_size = 9) %>% 
+  column_spec(1,
+              width = "0.5cm") %>% 
+  column_spec(2,
+              width = "15cm") %>% 
+  cat(file = here::here("Outputs/ssc_included_table.tex"))
+
