@@ -256,7 +256,13 @@ run_dml <- function(treat_col,
              ci_hi = ci[1, 2],
              pval = unname(dml_irm_mod$pval),
              ps_p01 = ps_q[[1]],
-             ps_p99 = ps_q[[2]])
+             ps_p99 = ps_q[[2]],
+             ## rv / rva and the confounder benchmarks are produced by the Python
+             ## sensitivity script; the R DoubleML package has no
+             ## sensitivity_analysis(), so they are carried as NA here to keep a
+             ## consistent result schema across success, guard and error rows
+             rv = NA_real_,
+             rva = NA_real_)
 }
 
 
@@ -290,6 +296,20 @@ ssc_recs <- data.table(
                 "rec_92_insulin_started_at_glucose_180_causal",
                 "rec_96_sodium_bicarb_causal"))
 
+## Near-universal-adherence recommendations. These are run through the identical
+## IRM only to read their overlap and precision, mirroring the diagnostic pass in
+## the Python script. They are kept out of the headline grid and its FDR
+## correction. Treatment columns are the plain adherence variants (not _causal).
+diagnostic_recs <- data.table(
+  treat_col = c("rec_45_crystalloid_no_albumin",
+                "rec_55_first_vaso_norepi",
+                "rec_71_low_tidal_volume",
+                "rec_73_plateau_pressure_limited",
+                "rec_67_hfnc_over_conventional",
+                "rec_69_hfnc_over_alternating",
+                "rec_79_iv_corticosteroids",
+                "rec_98_lmwh_ever"))
+
 ## Sepsis Outcomes
 outcomes <- c("mort_28d",
               "icu_mortality",
@@ -300,28 +320,31 @@ tiers <- c("full",
            "well_observed",
            "well_observed_strict")
 
-## Full Grid
-grid <- CJ(rec_row = seq_len(nrow(ssc_recs)),
-           outcome = outcomes,
-           tier = tiers,
-           sorted = FALSE)
+## Grid builder: SSC Recommendation x Outcome x Observability Tier
+make_grid <- function(recs) {
 
-n_grid <- nrow(grid)
+  CJ(rec_row = seq_len(nrow(recs)),
+     outcome = outcomes,
+     tier = tiers,
+     sorted = FALSE)
+}
 
-cli::cli_progress_bar("Fitting DML grid", total = n_grid)
 
+## Apply Double ML IRM Model to a full grid ------------------------------------
+## Run all combinations for a given recommendation set and row-bind the one-row
+## results. Parameterized over (recs, grid) so the same runner serves both the
+## headline grid and the diagnostic-only pass, mirroring the Python script.
+run_grid <- function(recs, grid) {
 
-## Apply Double ML IRM Model to full grid --------------------------------------
-## Run all combinations and row-bind the one-row results
-run_grid <- function() {
-  
+  n_grid <- nrow(grid)
+
   ## capture the bar id
   pb <- cli::cli_progress_bar("Fitting DML grid", total = n_grid)
-  
+
   dml_irm_results <- rbindlist(
     lapply(seq_len(nrow(grid)), function(i) {
-      
-      r <- ssc_recs[grid$rec_row[i]]
+
+      r <- recs[grid$rec_row[i]]
       
       ## progress update
       message(sprintf("[%d/%d] %s | %s | %s",
@@ -372,16 +395,37 @@ run_grid <- function() {
   
 }
 
+## Headline grid: the 15 recommendations carried into the causal analysis ------
+grid <- make_grid(ssc_recs)
+
 if (!file.exists(here::here("Outputs/dml_irm_results.rds"))) {
-  
-  dml_irm_results <- run_grid()
-  
+
+  dml_irm_results <- run_grid(ssc_recs, grid)
+
   ## Save results
   saveRDS(dml_irm_results, here::here("Outputs/dml_irm_results.rds"))
-  
+
 }
 
-dml_irm_results <- readRDS(here::here("Outputs/dml_irm_results.rds")) %>% 
+dml_irm_results <- readRDS(here::here("Outputs/dml_irm_results.rds")) %>%
+  setDT()
+
+
+## Diagnostic-only pass: near-universal-adherence recommendations --------------
+## Same IRM, read only for overlap (n_treated, ps_p01, ps_p99) and precision
+## (se, ci_lo, ci_hi), to decide whether any can support an estimate. Kept out of
+## the FDR correction below, exactly as in the Python diagnostic pass.
+diag_grid <- make_grid(diagnostic_recs)
+
+if (!file.exists(here::here("Outputs/dml_irm_diagnostics.rds"))) {
+
+  dml_diag_results <- run_grid(diagnostic_recs, diag_grid)
+
+  saveRDS(dml_diag_results, here::here("Outputs/dml_irm_diagnostics.rds"))
+
+}
+
+dml_diag_results <- readRDS(here::here("Outputs/dml_irm_diagnostics.rds")) %>%
   setDT()
 
 ## check positivity / overlap assumption

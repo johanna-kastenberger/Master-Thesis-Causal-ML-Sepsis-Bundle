@@ -169,6 +169,10 @@ dml_irm_mod <- DoubleMLIRM$new(DT_dml_data,
                                ## sets up 5-fold cross-fitting
                                ## removes overfitting bias
                                n_folds = 5,
+                               ## repeat the cross-fitting 5 times and aggregate,
+                               ## so the estimate does not depend on one random
+                               ## fold split (matches the grid and the Python run)
+                               n_rep = 5,
                                ## trims propensity scores to [0.01, 0.99]
                                ## so no single near-deterministic patient
                                ## destabilizes the estimate

@@ -28,13 +28,6 @@ library(DiagrammeR)
 library(DiagrammeRsvg)
 library(rsvg)
 
-## Source functions
-source(
-  list.files(
-    here::here("Code", "Functions"),
-    pattern = "\\.R$",
-    full.names = TRUE))
-
 ## Color scheme for plots
 pastel.blue   <- "lightblue"
 blue   = "#7EC8E3"
