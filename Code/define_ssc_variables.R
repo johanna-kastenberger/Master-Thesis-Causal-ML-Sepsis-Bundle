@@ -1682,6 +1682,7 @@ proportions(table(rec_13$rec_13_map_target_65_0_24h))
 proportions(table(rec_13$rec_13_eligibility))
 
 proportions(table(rec_13$rec_13_map_band))
+table(rec_13$rec_13_map_band)
 
 
 ## 14 RECOMMENDATION -----------------------------------------------------------
@@ -1834,6 +1835,7 @@ proportions(table(rec_14$rec_14_eligibility))
 table(rec_14$rec_14_eligibility)
 
 proportions(table(rec_14$rec_14_map_band))
+table(rec_14$rec_14_map_band)
 
 
 ## 15 RECOMMENDATION -----------------------------------------------------------
@@ -2037,6 +2039,9 @@ rec_17 <- antimicrobial_timing %>%
     
     default = NA_character_)]
 
+
+proportions(table(rec_17$rec_17_antimicrobial_within_1h))
+table(rec_17$rec_17_antimicrobial_within_1h)
 
 proportions(table(rec_17$rec_17_antimicrobial_within_1h_causal))
 
@@ -2708,7 +2713,12 @@ norepi_escalating_doses <- all_inputevents %>%
     rateuom == "mcg/kg/min", rate,
     rateuom == "mg/kg/min", rate * 1000,
     default = NA_real_
-  )] %>% 
+  )] %>%
+  ## physiologic ceiling: norepinephrine essentially never exceeds 5 mcg/kg/min,
+  ## so higher values are charting errors and are set NA rather than triggering a
+  ## false escalation (matches the ceiling used in vasopressor_hourly for rec 89)
+  .[norepi_dose_mcg_kg_min > 5,
+    norepi_dose_mcg_kg_min := NA_real_] %>%
   .[, norepi_escalating_dose := fifelse(
     norepi_dose_mcg_kg_min >= 0.3,
     TRUE,
@@ -2844,68 +2854,86 @@ rec_56 <- sepsis_base_cohort_data %>%
     
     septic_shock_proxy == FALSE | is.na(septic_shock_proxy),
     "no septic shock or unknown"
-  )]
+  )] %>% 
+  ## Decision-point confounder: the norepinephrine infusion rate at the escalation
+  ## that triggers the vasopressin decision, measured before that decision. The
+  ## baseline covariates capture severity at sepsis onset but not how high the
+  ## norepinephrine requirement had risen by the escalation point.
+  .[, cf_rec56_norepi_rate_escalation := norepi_dose_mcg_kg_min]
 
-## Decision-point confounder: the norepinephrine infusion rate at the escalation
-## that triggers the vasopressin decision, measured before that decision. The
-## baseline covariates capture severity at sepsis onset but not how high the
-## norepinephrine requirement had risen by the escalation point.
-rec_56[, cf_rec56_norepi_rate_escalation := norepi_dose_mcg_kg_min]
+## Additional decision-point confounders for rec 56: lactate and MAP at the
+## escalation point, the hemodynamic depth of shock driving the vasopressin
+## decision, taken as the most recent value in the 24h before escalation.
+rec56_anchor <- rec_56[!is.na(norepi_first_escalated),
+                       .(subject_id,
+                         hadm_id,
+                         stay_id,
+                         norepi_first_escalated)]
+
+rec56_pre_lactate <- rec56_anchor %>%
+  merge(.,
+        lactate_events[, .(subject_id,
+                           hadm_id,
+                           lac_time = charttime,
+                           lactate = valuenum)],
+        by = c("subject_id",
+               "hadm_id"),
+        allow.cartesian = TRUE) %>%
+  .[lac_time <= norepi_first_escalated &
+      lac_time >= norepi_first_escalated - hours(24)] %>%
+  .[order(subject_id,
+          hadm_id,
+          stay_id,
+          -as.numeric(lac_time)),
+    .SD[1],
+    by = .(subject_id,
+           hadm_id,
+           stay_id)] %>%
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        cf_rec56_lactate = lactate)]
+
+rec56_pre_map <- rec56_anchor %>%
+  merge(.,
+        map_events[, .(stay_id,
+                       map_time = charttime,
+                       map = valuenum)],
+        by = "stay_id",
+        allow.cartesian = TRUE) %>%
+  .[map_time <= norepi_first_escalated &
+      map_time >= norepi_first_escalated - hours(24)] %>%
+  .[order(stay_id,
+          -as.numeric(map_time)),
+    .SD[1],
+    by = stay_id] %>%
+  .[, .(stay_id,
+        cf_rec56_map = map)]
+
+rec_56 <- rec_56 %>%
+  merge(.,
+        rec56_pre_lactate,
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id"),
+        all.x = TRUE,
+        all.y = FALSE) %>%
+  merge(.,
+        rec56_pre_map,
+        by = "stay_id",
+        all.x = TRUE,
+        all.y = FALSE)
 
 
 ## Adherence rates
 proportions(table(rec_56$rec_56_eligibility))
+table(rec_56$rec_56_eligibility)
 proportions(table(rec_56$rec_56_vasopressin_after_escalating_norepi_causal))
 
-# ## Define recommendation as vasopressor administration after first 
-# ## escalating dose of Norepinephrine
-# rec_56 <- norepi_escalating_doses %>%
-#   copy() %>% 
-#   merge(.,
-#           sepsis_base_cohort_data[, .(subject_id,
-#                                       hadm_id,
-#                                       stay_id,
-#                                       septic_shock_proxy,
-#                                       septic_shock_onset_time)] %>% unique(),
-#           by = "stay_id",
-#           all.x = TRUE,
-#           all.y = FALSE) %>% 
-#   .[septic_shock_proxy == TRUE &
-#       starttime >= septic_shock_onset_time &
-#       norepi_escalating_dose == TRUE] %>% 
-#   ## select first escalated dose after septic shock onset
-#   setorder(stay_id,
-#            starttime) %>% 
-#   .[, .SD[1],
-#     by = .(subject_id,
-#            hadm_id,
-#            stay_id)] %>% 
-#   .[, .(subject_id,
-#         hadm_id,
-#         stay_id,
-#         ne_escalation_time = starttime,
-#         norepi_dose_mcg_min,
-#         norepi_escalating_dose)] %>% 
-#   unique() %>% 
-#   merge(.,
-#         vasopressin_events[, .(stay_id,
-#                                vasopressin_time = starttime,
-#                                received_vasopressin)],
-#         by = "stay_id",
-#         all.x = TRUE,
-#         all.y = FALSE,
-#         allow.cartesian = TRUE) %>% 
-#   .[is.na(vasopressin_time) | vasopressin_time >= ne_escalation_time] %>% 
-#   setorder(stay_id,
-#            vasopressin_time) %>% 
-# ## select first vasopressin administration after norepinephrine escalating dose
-#   .[, .SD[1],
-#      by = .(subject_id,
-#             hadm_id,
-#             stay_id)] %>% 
-#   .[, rec_56_vasopressin_after_norepi := !is.na(vasopressin_time) &
-#       vasopressin_time >= ne_escalation_time]
-#   
+summary(rec_56$norepi_dose_mcg_kg_min)
+summary(rec_56$cf_rec56_norepi_rate_escalation)
+summary(rec_56$cf_rec56_lactate)
+summary(rec_56$cf_rec56_map)
 
 ## 57 RECOMMENDATION -----------------------------------------------------------
 ## This recommendation applies to patients with septic shock and inadequate MAP
@@ -2950,7 +2978,12 @@ norepi_escalating_doses_0.8 <- all_inputevents %>%
     rateuom == "mcg/kg/min", rate,
     rateuom == "mg/kg/min", rate * 1000,
     default = NA_real_
-  )] %>% 
+  )] %>%
+  ## physiologic ceiling: norepinephrine essentially never exceeds 5 mcg/kg/min,
+  ## so higher values are charting errors and are set NA rather than triggering a
+  ## false escalation (matches the ceiling used in vasopressor_hourly for rec 89)
+  .[norepi_dose_mcg_kg_min > 5,
+    norepi_dose_mcg_kg_min := NA_real_] %>%
   .[, norepi_escalating_dose_0.8 := fifelse(
     norepi_dose_mcg_kg_min >= 0.8,
     TRUE,
@@ -3110,165 +3143,12 @@ rec_57 <- sepsis_base_cohort_data %>%
     "no septic shock or unknown"
   )]
 
-# ## First Norepinephrine administration after septic shock onset
-# first_norepi <- vasopressor_events %>% 
-#   copy() %>% 
-#   merge(.,
-#         vasopressor_lookup,
-#         by = "itemid",
-#         all.x = TRUE,
-#         all.y = FALSE) %>% 
-#   .[label == "Norepinephrine"] %>% 
-#   merge(sepsis_base_cohort_data[, .(subject_id,
-#                                     hadm_id,
-#                                     stay_id,
-#                                     septic_shock_proxy,
-#                                     septic_shock_onset_time)] %>% unique(),
-#         by = "stay_id",
-#         all.x = TRUE,
-#         all.y = FALSE) %>% 
-#   .[starttime >= septic_shock_onset_time &
-#       amount > 0 &
-#       rate > 0] %>% 
-#   .[, first_norepi := min(starttime,
-#                         na.rm = TRUE),
-#     by = .(subject_id,
-#            hadm_id,
-#            stay_id)]
-# 
-# ## First Vasopressin administration after septic shock onset
-# first_vasopressin <- vasopressor_events %>% 
-#   copy() %>% 
-#   merge(.,
-#         vasopressor_lookup,
-#         by = "itemid",
-#         all.x = TRUE,
-#         all.y = FALSE) %>% 
-#   .[label == "Vasopressin"] %>% 
-#   merge(sepsis_base_cohort_data[, .(subject_id,
-#                                     hadm_id,
-#                                     stay_id,
-#                                     septic_shock_proxy,
-#                                     septic_shock_onset_time)] %>% unique(),
-#         by = "stay_id",
-#         all.x = TRUE,
-#         all.y = FALSE) %>% 
-#   .[starttime >= septic_shock_onset_time &
-#       amount > 0 &
-#       rate > 0] %>% 
-#   .[, first_vasopressin := min(starttime,
-#                           na.rm = TRUE),
-#     by = .(subject_id,
-#            hadm_id,
-#            stay_id)]
-# 
-# ## Administration of Norepinephrine & Vasopressin after septic shock onset
-# norepi_and_vasopressin <- 
-# merge(first_norepi %>% 
-#   copy() %>% 
-#   .[, .(subject_id,
-#         hadm_id,
-#         stay_id,
-#         first_norepi)] %>% 
-#   unique(),
-# first_vasopressin %>% 
-#   copy() %>% 
-#   .[, .(subject_id,
-#         hadm_id,
-#         stay_id,
-#         first_vasopressin)] %>% 
-#   unique(),
-# by = c("subject_id",
-#        "hadm_id",
-#        "stay_id"),
-# all = FALSE) %>% 
-#   .[, norepi_and_vasopressin_time := max(first_norepi,
-#                                        first_vasopressin,
-#                                        na.rm = TRUE),
-#     by = .(subject_id,
-#            hadm_id,
-#            stay_id)] %>% 
-#   .[, .(subject_id,
-#         hadm_id,
-#         stay_id,
-#         norepi_and_vasopressin_time)] %>% 
-#   unique()
-# 
-# ## Persistent hypotension (MAP < 65) after Norepinephrine & Vasopressor administration
-# persistent_hypotension <- norepi_and_vasopressin %>% 
-#   copy() %>% 
-#   merge(.,
-#         map_events,
-#         by = "stay_id",
-#         all = FALSE,
-#         allow.cartesian = TRUE) %>% 
-#   .[chart_hour >= lubridate::floor_date(norepi_and_vasopressin_time,
-#                                         "hour") &
-#       chart_hour  <= lubridate::floor_date(norepi_and_vasopressin_time + hours(6),
-#                                            "hour")] %>% 
-#   .[, `:=` (persistent_hypotension = any(map < 65,
-#                                      na.rm = TRUE),
-#         median_map_6h = median(map, 
-#                                na.rm = TRUE),
-#         min_map_6h = min(map,
-#                          na.rm = TRUE)),
-#     by = .(subject_id,
-#            hadm_id,
-#            stay_id)] %>% 
-#   .[, .(subject_id,
-#         hadm_id,
-#         stay_id,
-#         persistent_hypotension,
-#         median_map_6h,
-#         min_map_6h,
-#         norepi_and_vasopressin_time)] %>% 
-#   unique()
-# 
-# ## Epinephrine administration
-# first_epi_after_shock <- vasopressor_events %>% 
-#   copy() %>% 
-#   merge(vasopressor_lookup,
-#         by = "itemid",
-#         all.x = TRUE,
-#         all.y = FALSE) %>% 
-#   .[label == "Epinephrine"] %>% 
-#   merge(.,
-#         sepsis_base_cohort_data[, .(subject_id,
-#                                     hadm_id,
-#                                     stay_id,
-#                                     septic_shock_proxy,
-#                                     septic_shock_onset_time)] %>% unique(),
-#         by = "stay_id",
-#         all.x = TRUE,
-#         all.y = FALSE) %>% 
-#   .[septic_shock_proxy == TRUE &
-#       starttime >= septic_shock_onset_time &
-#       amount > 0 &
-#       rate > 0] %>% 
-#   .[, .(first_epinephrine = min(starttime, 
-#                                 na.rm = TRUE)),
-#         by = .(subject_id,
-#                hadm_id,
-#                stay_id)]
-# 
-# ## Define recommendation as persistent hypotension (MAP < 65) within 6 hours
-# ## after both Norepinephrine & Vasopressin administration after septic shock onset
-# rec_57 <- persistent_hypotension %>% 
-#   copy() %>% 
-#   .[persistent_hypotension == TRUE] %>% 
-#   merge(.,
-#         first_epi_after_shock,
-#         by = c("subject_id",
-#                "hadm_id",
-#                "stay_id"),
-#         all.x = TRUE,
-#         all.y = FALSE) %>% 
-#   .[, rec_57_epinephrine_added := !is.na(first_epinephrine) &
-#       first_epinephrine >= norepi_and_vasopressin_time]
 
 proportions(table(rec_57$rec_57_epi_after_escalating_norepi_vaso))
 table(rec_57$rec_57_eligibility)
+proportions(table(rec_57$rec_57_eligibility))
 
+summary(rec_57$norepi_dose_mcg_kg_min)
 
 ## 67, 68, 69 RECOMMENDATIONS --------------------------------------------------
 ## Define acute hypoxemic respiratory failure (AHRF)
@@ -4256,125 +4136,125 @@ proportions(table(rec_73$rec_73_plateau_pressure_limited))
 
 
 
-## 74 RECOMMENDATION -----------------------------------------------------------
-rec74_label <- ssc_recommendations %>%
-  .[rec_num == 74, rec_label]
-
-## Item IDs for the set PEEP and the inspired oxygen fraction
-peep_itemids <- chart_itemids %>%
-  .[grepl("peep",
-          label,
-          ignore.case = TRUE) &
-      grepl("set",
-            label,
-            ignore.case = TRUE)]
-
-fio2_itemids <- chart_itemids %>%
-  .[grepl("inspired o2 fraction",
-          label,
-          ignore.case = TRUE)]
-
-## Set PEEP (cm H2O), averaged per hour
-peep_events <- all_chartevents %>%
-  .[itemid %in% peep_itemids$itemid] %>%
-  .[!is.na(valuenum) &
-      valuenum >= 0 &
-      ## conservative upper bound that removes obvious outliers
-      valuenum <= 40] %>%
-  .[, chart_hour := lubridate::floor_date(charttime,
-                                          "hour")] %>%
-  .[, .(peep = mean(valuenum,
-                    na.rm = TRUE)),
-    by = .(stay_id,
-           chart_hour)]
-
-## FiO2 as a fraction, averaged per hour. The source records a percentage, so it
-## is divided by 100 and restricted to the physiological 21 to 100 range
-fio2_events <- all_chartevents %>%
-  .[itemid %in% fio2_itemids$itemid] %>%
-  .[!is.na(valuenum) &
-      valuenum >= 21 &
-      valuenum <= 100] %>%
-  .[, chart_hour := lubridate::floor_date(charttime,
-                                          "hour")] %>%
-  .[, .(fio2 = mean(valuenum,
-                    na.rm = TRUE) / 100),
-    by = .(stay_id,
-           chart_hour)]
-
-## PEEP and FiO2 paired within the same hour, with the minimum PEEP of the
-## ARDSnet higher-PEEP strategy for that FiO2. The step function uses the lower
-## bounds of the ALVEOLI higher-PEEP, lower-FiO2 table as a reproducible proxy for
-## what counts as "higher PEEP", since the recommendation gives no threshold.
-peep_fio2_events <- merge(peep_events,
-                          fio2_events,
-                          by = c("stay_id",
-                                 "chart_hour"),
-                          all = FALSE) %>%
-  .[, required_high_peep := fcase(
-    fio2 <= 0.30, 12,
-    fio2 <= 0.40, 14,
-    fio2 <= 0.50, 16,
-    fio2 <= 0.70, 18,
-    fio2 <= 0.80, 20,
-    fio2 <= 1.00, 22,
-    default = NA_real_)] %>%
-  .[, higher_peep := peep >= required_high_peep]
-
-## First paired PEEP and FiO2 reading within 24h of invasive ventilation start,
-## preferring an in-window reading
-first_peep_strategy <- peep_fio2_events %>%
-  copy() %>%
-  merge(.,
-        invasive_vent_start,
-        by = "stay_id",
-        all = FALSE) %>%
-  .[, in_window := chart_hour >= vent_start - hours(1) &
-      chart_hour <= vent_start + hours(24)] %>%
-  .[order(subject_id,
-          hadm_id,
-          stay_id,
-          -as.numeric(in_window),
-          chart_hour),
-    .SD[1],
-    by = .(subject_id,
-           hadm_id,
-           stay_id)] %>%
-  .[in_window == TRUE,
-    .(subject_id,
-      hadm_id,
-      stay_id,
-      first_peep_time = chart_hour,
-      peep,
-      fio2,
-      required_high_peep,
-      higher_peep)]
-
-## Recommendation 74: higher PEEP over lower PEEP for moderate to severe ARDS
-## (PaO2/FiO2 <= 200). Descriptive only: "higher versus lower" has no guideline
-## threshold, so adherence is scored against an imposed higher-PEEP table and the
-## recommendation is not carried into the causal analysis.
-rec_74 <- ards_oxygenation %>%
-  copy() %>%
-  .[ards_first_pf_ratio <= 200] %>%
-  merge(.,
-        first_peep_strategy,
-        by = c("subject_id",
-               "hadm_id",
-               "stay_id"),
-        all.x = TRUE,
-        all.y = FALSE) %>%
-  .[, rec_74_higher_peep := higher_peep] %>%
-  .[, rec_74_eligibility := fcase(
-
-    !is.na(rec_74_higher_peep),
-    "eligible",
-
-    default = "moderate-severe ARDS, no PEEP/FiO2 pair in window")]
-
-
-table(rec_74$rec_74_eligibility)
-proportions(table(rec_74$rec_74_higher_peep))
+# ## 74 RECOMMENDATION -----------------------------------------------------------
+# rec74_label <- ssc_recommendations %>%
+#   .[rec_num == 74, rec_label]
+# 
+# ## Item IDs for the set PEEP and the inspired oxygen fraction
+# peep_itemids <- chart_itemids %>%
+#   .[grepl("peep",
+#           label,
+#           ignore.case = TRUE) &
+#       grepl("set",
+#             label,
+#             ignore.case = TRUE)]
+# 
+# fio2_itemids <- chart_itemids %>%
+#   .[grepl("inspired o2 fraction",
+#           label,
+#           ignore.case = TRUE)]
+# 
+# ## Set PEEP (cm H2O), averaged per hour
+# peep_events <- all_chartevents %>%
+#   .[itemid %in% peep_itemids$itemid] %>%
+#   .[!is.na(valuenum) &
+#       valuenum >= 0 &
+#       ## conservative upper bound that removes obvious outliers
+#       valuenum <= 40] %>%
+#   .[, chart_hour := lubridate::floor_date(charttime,
+#                                           "hour")] %>%
+#   .[, .(peep = mean(valuenum,
+#                     na.rm = TRUE)),
+#     by = .(stay_id,
+#            chart_hour)]
+# 
+# ## FiO2 as a fraction, averaged per hour. The source records a percentage, so it
+# ## is divided by 100 and restricted to the physiological 21 to 100 range
+# fio2_events <- all_chartevents %>%
+#   .[itemid %in% fio2_itemids$itemid] %>%
+#   .[!is.na(valuenum) &
+#       valuenum >= 21 &
+#       valuenum <= 100] %>%
+#   .[, chart_hour := lubridate::floor_date(charttime,
+#                                           "hour")] %>%
+#   .[, .(fio2 = mean(valuenum,
+#                     na.rm = TRUE) / 100),
+#     by = .(stay_id,
+#            chart_hour)]
+# 
+# ## PEEP and FiO2 paired within the same hour, with the minimum PEEP of the
+# ## ARDSnet higher-PEEP strategy for that FiO2. The step function uses the lower
+# ## bounds of the ALVEOLI higher-PEEP, lower-FiO2 table as a reproducible proxy for
+# ## what counts as "higher PEEP", since the recommendation gives no threshold.
+# peep_fio2_events <- merge(peep_events,
+#                           fio2_events,
+#                           by = c("stay_id",
+#                                  "chart_hour"),
+#                           all = FALSE) %>%
+#   .[, required_high_peep := fcase(
+#     fio2 <= 0.30, 12,
+#     fio2 <= 0.40, 14,
+#     fio2 <= 0.50, 16,
+#     fio2 <= 0.70, 18,
+#     fio2 <= 0.80, 20,
+#     fio2 <= 1.00, 22,
+#     default = NA_real_)] %>%
+#   .[, higher_peep := peep >= required_high_peep]
+# 
+# ## First paired PEEP and FiO2 reading within 24h of invasive ventilation start,
+# ## preferring an in-window reading
+# first_peep_strategy <- peep_fio2_events %>%
+#   copy() %>%
+#   merge(.,
+#         invasive_vent_start,
+#         by = "stay_id",
+#         all = FALSE) %>%
+#   .[, in_window := chart_hour >= vent_start - hours(1) &
+#       chart_hour <= vent_start + hours(24)] %>%
+#   .[order(subject_id,
+#           hadm_id,
+#           stay_id,
+#           -as.numeric(in_window),
+#           chart_hour),
+#     .SD[1],
+#     by = .(subject_id,
+#            hadm_id,
+#            stay_id)] %>%
+#   .[in_window == TRUE,
+#     .(subject_id,
+#       hadm_id,
+#       stay_id,
+#       first_peep_time = chart_hour,
+#       peep,
+#       fio2,
+#       required_high_peep,
+#       higher_peep)]
+# 
+# ## Recommendation 74: higher PEEP over lower PEEP for moderate to severe ARDS
+# ## (PaO2/FiO2 <= 200). Descriptive only: "higher versus lower" has no guideline
+# ## threshold, so adherence is scored against an imposed higher-PEEP table and the
+# ## recommendation is not carried into the causal analysis.
+# rec_74 <- ards_oxygenation %>%
+#   copy() %>%
+#   .[ards_first_pf_ratio <= 200] %>%
+#   merge(.,
+#         first_peep_strategy,
+#         by = c("subject_id",
+#                "hadm_id",
+#                "stay_id"),
+#         all.x = TRUE,
+#         all.y = FALSE) %>%
+#   .[, rec_74_higher_peep := higher_peep] %>%
+#   .[, rec_74_eligibility := fcase(
+# 
+#     !is.na(rec_74_higher_peep),
+#     "eligible",
+# 
+#     default = "moderate-severe ARDS, no PEEP/FiO2 pair in window")]
+# 
+# 
+# table(rec_74$rec_74_eligibility)
+# proportions(table(rec_74$rec_74_higher_peep))
 
 
 ## 79 RECOMMENDATION -----------------------------------------------------------
@@ -4595,13 +4475,16 @@ fluid_bolus_hourly <- all_inputevents %>%
         by = "itemid",
         all.x = TRUE,
         all.y = FALSE) %>% 
-  .[amount >= 250] %>% 
+  ## keep genuine boluses/volume expansion (>= 250 mL) and drop gross per-record
+  ## errors (a single administration above 10 L is a data-entry error, as with the
+  ## 20,000 kg weights), before summing per hour
+  .[amount >= 250 & amount <= 10000] %>%
   .[, chart_hour := lubridate::floor_date(starttime,
-                                          "hour")] %>% 
+                                          "hour")] %>%
   .[, .(fluid_bolus_ml = sum(amount,
                              na.rm = TRUE)),
     by = .(stay_id,
-           chart_hour)] %>% 
+           chart_hour)] %>%
   .[, ongoing_volume_expansion := fluid_bolus_ml >= 500]
 
 ## Vasopressor hourly administration events
@@ -4618,33 +4501,41 @@ vasopressor_hourly <- all_vasopressorevents %>%
   .[!is.na(vaso_start) & !is.na(vaso_end)] %>%
   ## normalize mislabeled epinephrine so it is not dropped by the fcase below
   .[vaso_label == "Epinephrine.", vaso_label := "Epinephrine"] %>%
+  ## potency factors applied only to weight-based rates (mcg/kg/min, or mg/kg/min
+  ## scaled to mcg). Non-weight-based rows (mcg/min, missing unit) are left NA and
+  ## dropped below rather than mis-scaled; they are a negligible handful.
   .[, norepi_equiv_rate := fcase(
-    vaso_label == "Norepinephrine",
+    vaso_label == "Norepinephrine" & vaso_rate_unit == "mcg/kg/min",
     vaso_rate,
-    
-    vaso_label == "Epinephrine",
+    vaso_label == "Norepinephrine" & vaso_rate_unit == "mg/kg/min",
+    vaso_rate * 1000,
+
+    vaso_label == "Epinephrine" & vaso_rate_unit == "mcg/kg/min",
     vaso_rate,
-    
+
     grepl("Phenylephrine",
           vaso_label,
-          ignore.case = TRUE),
+          ignore.case = TRUE) &
+      vaso_rate_unit == "mcg/kg/min",
     vaso_rate / 10,
-    
-    vaso_label == "Dopamine",
+
+    vaso_label == "Dopamine" & vaso_rate_unit == "mcg/kg/min",
     vaso_rate / 100,
-    
+
+    ## Goradia et al. conversion: vasopressin in units/min contributes
+    ## 2.5x to the norepinephrine equivalent (0.04 units/min ~= 0.1 mcg/kg/min),
+    ## so units/hour is first divided by 60 and then scaled by 2.5
     vaso_label == "Vasopressin" & vaso_rate_unit == "units/hour",
-    (vaso_rate / 60) / 0.03 * 0.1,
-    
+    (vaso_rate / 60) * 2.5,
+
     ## Angiotensin is not reliably convertible to NE-equivalent
-    grepl("Angiotensin II",
-          vaso_label),
-    NA_real_,
-    
     default = NA_real_
-  )] %>% 
-  .[!is.na(norepi_equiv_rate) & norepi_equiv_rate > 0] %>% 
-  .[, vp_event_id := .I] %>% 
+  )] %>%
+  ## physiologic ceiling: a single agent's norepinephrine-equivalent essentially
+  ## never exceeds 5 mcg/kg/min, so higher values are charting errors (misplaced
+  ## decimal or mislabeled unit) and are dropped before the hourly aggregation
+  .[!is.na(norepi_equiv_rate) & norepi_equiv_rate > 0 & norepi_equiv_rate <= 5] %>%
+  .[, vp_event_id := .I] %>%
   .[, .(
     chart_hour = seq(
       lubridate::floor_date(vaso_start, "hour"),
@@ -4654,10 +4545,15 @@ vasopressor_hourly <- all_vasopressorevents %>%
     norepi_equiv_rate = norepi_equiv_rate
   ),
   by = .(vp_event_id, stay_id, vaso_label)] %>%
+  ## collapse multiple titration rows of the same agent within an hour to one rate
+  ## (the max for that hour) before combining agents, so a single infusion's many
+  ## charted rows are not summed with themselves
+  .[, .(agent_rate = max(norepi_equiv_rate, na.rm = TRUE)),
+    by = .(stay_id, chart_hour, vaso_label)] %>%
   ## sum concurrent agents' norepinephrine-equivalents per hour (combined burden,
   ## not the single highest agent) so combination vasopressors count as high dose
   .[, .(
-    vasopressor_rate = sum(norepi_equiv_rate, na.rm = TRUE)
+    vasopressor_rate = sum(agent_rate, na.rm = TRUE)
   ),
   by = .(stay_id, chart_hour)] %>%
   .[order(stay_id,
@@ -4726,8 +4622,29 @@ post_resuscitation_time <- acute_resuscitation_hours %>%
                                            align = "right",
                                            fill = NA) == 6,
     by = stay_id] %>% 
-  .[no_acute_resuscitation_6h == TRUE] %>% 
+  .[no_acute_resuscitation_6h == TRUE] %>%
   .[, .(post_resuscitation_time = min(chart_hour)),
+    by = stay_id]
+
+## Decision-point confounders for recommendation 89, summarizing the acute
+## resuscitation course up to the stabilization point, before the fluid-removal
+## decision. The baseline covariates describe severity at sepsis onset but not how
+## intense and prolonged the resuscitation had been by the time of stabilization,
+## which drives both whether fluid is then removed and the outcome.
+rec89_decision_confounders <- acute_resuscitation_hours %>%
+  merge(.,
+        post_resuscitation_time,
+        by = "stay_id",
+        all = FALSE) %>%
+  .[chart_hour <= post_resuscitation_time] %>%
+  .[, .(cf_rec89_peak_vasopressor = max(vasopressor_rate,
+                                        na.rm = TRUE),
+        cf_rec89_cum_fluid_bolus = sum(fluid_bolus_ml,
+                                       na.rm = TRUE),
+        cf_rec89_hours_to_stabilization =
+          as.numeric(difftime(post_resuscitation_time[1],
+                              septic_shock_onset_time[1],
+                              units = "hours"))),
     by = stay_id]
 
 ## Recommendation 89
@@ -4790,6 +4707,11 @@ rec_89 <- sepsis_base_cohort_data %>%
         by = "stay_id",
         all.x = TRUE,
         all.y = FALSE) %>%
+  merge(.,
+        rec89_decision_confounders,
+        by = "stay_id",
+        all.x = TRUE,
+        all.y = FALSE) %>%
   ## adherence is defined only for shock patients who reached the
   ## post-resuscitation phase; never-stabilized patients are non-evaluable (NA)
   .[septic_shock_proxy == TRUE &
@@ -4819,6 +4741,10 @@ proportions(table(rec_89$rec_89_eligibility))
 table(rec_89$rec_89_eligibility)
 proportions(table(rec_89$rec_89_active_fluid_removal))
 proportions(table(rec_89$rec_89_active_fluid_removal_7d_causal))
+
+summary(rec_89$cf_rec89_cum_fluid_bolus)
+summary(rec_89$cf_rec89_peak_vasopressor)
+summary(rec_89$cf_rec89_hours_to_stabilization)
 
 ## 90 RECOMMENDATION -----------------------------------------------------------
 rec90_label <- ssc_recommendations %>% 
@@ -4967,6 +4893,74 @@ rec_90 <- sepsis_base_cohort_data %>%
     default = NA_character_
   )]
 
+## Decision-point confounders for recommendation 90: the hemodynamic severity at
+## the transfusion, which pushes a clinician toward a liberal transfusion at a
+## given hemoglobin and also predicts outcome. The trigger hemoglobin itself
+## defines the treatment arm (restrictive = Hb < 7) and is deliberately excluded.
+## Anchored to the first transfusion after sepsis onset, taking the most recent
+## value in the preceding 24h.
+rec90_transfusion_anchor <- rec_90 %>%
+  .[!is.na(transfusion_time) &
+      transfusion_after_sepsis == TRUE,
+    .(subject_id,
+      hadm_id,
+      stay_id,
+      transfusion_time)]
+
+pre_lactate_transfusion <- rec90_transfusion_anchor %>%
+  merge(.,
+        lactate_events[, .(subject_id,
+                           hadm_id,
+                           lac_time = charttime,
+                           lactate = valuenum)],
+        by = c("subject_id",
+               "hadm_id"),
+        allow.cartesian = TRUE) %>%
+  .[lac_time <= transfusion_time &
+      lac_time >= transfusion_time - hours(24)] %>%
+  .[order(subject_id,
+          hadm_id,
+          stay_id,
+          -as.numeric(lac_time)),
+    .SD[1],
+    by = .(subject_id,
+           hadm_id,
+           stay_id)] %>%
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        cf_rec90_lactate = lactate)]
+
+pre_map_transfusion <- rec90_transfusion_anchor %>%
+  merge(.,
+        map_events[, .(stay_id,
+                       map_time = charttime,
+                       map = valuenum)],
+        by = "stay_id",
+        allow.cartesian = TRUE) %>%
+  .[map_time <= transfusion_time &
+      map_time >= transfusion_time - hours(24)] %>%
+  .[order(stay_id,
+          -as.numeric(map_time)),
+    .SD[1],
+    by = stay_id] %>%
+  .[, .(stay_id,
+        cf_rec90_map = map)]
+
+rec_90 <- rec_90 %>%
+  merge(.,
+        pre_lactate_transfusion,
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id"),
+        all.x = TRUE,
+        all.y = FALSE) %>%
+  merge(.,
+        pre_map_transfusion,
+        by = "stay_id",
+        all.x = TRUE,
+        all.y = FALSE)
+
 
 ## Adherence rates
 proportions(table(rec_90$rec_90_eligibility))
@@ -4977,6 +4971,9 @@ proportions(table(rec_90$rec_90_restrictive_transfusion_8))
 
 proportions(table(rec_90[rec_90_eligibility == "eligible"]$transfusion_strategy))
 rec_90[rec_90_eligibility == "eligible", .N, by = transfusion_strategy][order(-N)]
+
+summary(rec_90$cf_rec90_lactate)
+summary(rec_90$cf_rec90_map)
 
 ## 91 RECOMMENDATION -----------------------------------------------------------
 ## cannot be assessed within the first 24h
@@ -5057,7 +5054,9 @@ rec_91 <- sepsis_base_cohort_data %>%
   .[, .(subject_id,
         hadm_id,
         stay_id,
-        suspected_infection_time)] %>%
+        suspected_infection_time,
+        septic_shock_proxy,
+        septic_shock_onset_time)] %>%
   unique() %>%
   merge(.,
         enteral_nutrition_events,
@@ -5098,13 +5097,24 @@ rec_91 <- sepsis_base_cohort_data %>%
     prolonged_ventilation == FALSE,
     "not mechanically ventilated > 48h (not applicable)",
 
-    default = NA_character_)]
+    default = NA_character_)] %>% 
+  ## Decision-point confounder: septic shock within the first 48h of sepsis onset,
+  ## measured before the feeding window. Early hemodynamic instability is the main
+  ## reason enteral feeding is delayed or withheld and it also predicts outcome.
+  ## Total ventilation duration is deliberately not used, since it is largely
+  ## determined after the feeding decision and would be a consequence of treatment.
+  .[, cf_rec91_early_shock := as.integer(
+    septic_shock_proxy == TRUE &
+      !is.na(septic_shock_onset_time) &
+      septic_shock_onset_time <= suspected_infection_time + hours(48))]
 
 
-## Adherence rates 
+## Adherence rates
 proportions(table(rec_91$rec_91_eligibility))
 table(rec_91$rec_91_eligibility)
 proportions(table(rec_91$rec_91_early_enteral_nutrition_causal))
+
+table(rec_91$cf_rec91_early_shock)
 
 rec_91[prolonged_ventilation == TRUE,
        .(early     = mean(rec_91_early_enteral_nutrition_causal),
@@ -5318,7 +5328,14 @@ rec_92 <- sepsis_base_cohort_data %>%
   .[, rec_92_insulin_started_at_glucose_180_12h := fifelse(
     !is.na(first_glucose_180_time),
     insulin_within_12h,
-    NA)]
+    NA)] %>% 
+  ## Decision-point confounder: the qualifying glucose value itself. Among eligible
+  ## stays (all above 180) the exact level still varies and drives both whether
+  ## insulin is started promptly and the outcome; it is the eligibility gate, not
+  ## the adherence rule, so it is a legitimate covariate.
+  .[, cf_rec92_qualifying_glucose := first_glucose_180_value]
+
+
 
 
 proportions(table(rec_92$rec_92_eligibility))
@@ -5326,6 +5343,8 @@ table(rec_92$rec_92_eligibility)
 proportions(table(rec_92$rec_92_insulin_started_at_glucose_180_causal))
 proportions(table(rec_92$rec_92_insulin_started_at_glucose_180_3h))
 proportions(table(rec_92$rec_92_insulin_started_at_glucose_180_12h))
+
+summary(rec_92$cf_rec92_qualifying_glucose)
 
 ## 96 RECOMMENDATION -----------------------------------------------------------
 rec96_label <- ssc_recommendations %>% 
@@ -5553,11 +5572,86 @@ rec_96 <- rec_96_eligible %>%
     !is.na(eligibility_time),
     "eligible",
 
-    default = "no severe acidemia with AKI 2/3 in shock")]
+    default = "no severe acidemia with AKI 2/3 in shock")] %>% 
+  ## Decision-point confounders: the pH value and KDIGO stage at the qualifying
+  ## time. Both are eligibility gates (pH <= 7.2, stage >= 2), but among eligible
+  ## stays they still vary and drive the bicarbonate decision without defining it,
+  ## so they are legitimate covariates rather than the adherence rule.
+  .[, `:=` (cf_rec96_ph = ph,
+            cf_rec96_aki_stage = as.numeric(aki_stage))]
+
+## Additional decision-point confounders for rec 96: lactate and the peak
+## norepinephrine-equivalent vasopressor burden in the 24h before the qualifying
+## time, capturing the depth of shock that drives last-ditch bicarbonate use and
+## predicts outcome. This is the "how close to dying" signal the pH and stage do
+## not fully carry.
+rec96_anchor <- rec_96[!is.na(eligibility_time),
+                       .(subject_id,
+                         hadm_id,
+                         stay_id,
+                         eligibility_time)]
+
+rec96_pre_lactate <- rec96_anchor %>%
+  merge(.,
+        lactate_events[, .(subject_id,
+                           hadm_id,
+                           lac_time = charttime,
+                           lactate = valuenum)],
+        by = c("subject_id",
+               "hadm_id"),
+        allow.cartesian = TRUE) %>%
+  .[lac_time <= eligibility_time &
+      lac_time >= eligibility_time - hours(24)] %>%
+  .[order(subject_id,
+          hadm_id,
+          stay_id,
+          -as.numeric(lac_time)),
+    .SD[1],
+    by = .(subject_id,
+           hadm_id,
+           stay_id)] %>%
+  .[, .(subject_id,
+        hadm_id,
+        stay_id,
+        cf_rec96_lactate = lactate)]
+
+rec96_pre_vaso <- rec96_anchor %>%
+  merge(.,
+        vasopressor_hourly[, .(stay_id,
+                               chart_hour,
+                               vasopressor_rate)],
+        by = "stay_id",
+        allow.cartesian = TRUE) %>%
+  .[chart_hour <= eligibility_time &
+      chart_hour >= eligibility_time - hours(24)] %>%
+  .[, .(cf_rec96_vaso_burden = max(vasopressor_rate,
+                                   na.rm = TRUE)),
+    by = stay_id]
+
+rec_96 <- rec_96 %>%
+  merge(.,
+        rec96_pre_lactate,
+        by = c("subject_id",
+               "hadm_id",
+               "stay_id"),
+        all.x = TRUE,
+        all.y = FALSE) %>%
+  merge(.,
+        rec96_pre_vaso,
+        by = "stay_id",
+        all.x = TRUE,
+        all.y = FALSE)
+
 
 ## eligible subpopulation size and adherence
 proportions(table(rec_96$rec_96_sodium_bicarb_causal))
 table(rec_96$aki_stage)
+
+summary(rec_96$cf_rec96_ph)
+summary(rec_96$cf_rec96_aki_stage)
+table(rec_96$cf_rec96_aki_stage)
+summary(rec_96$cf_rec96_lactate)
+summary(rec_96$cf_rec96_vaso_burden)
 
 
 ## 98 Recommendation -----------------------------------------------------------
@@ -5872,7 +5966,9 @@ DT_ssc_encoded <- sepsis_base_cohort_data %>%
                    stay_id,
                    rec_56_vasopressin_after_escalating_norepi_causal,
                    rec_56_eligibility,
-                   cf_rec56_norepi_rate_escalation)] %>%
+                   cf_rec56_norepi_rate_escalation,
+                   cf_rec56_lactate,
+                   cf_rec56_map)] %>%
           unique(),
         by = c("subject_id",
                "hadm_id",
@@ -5976,7 +6072,10 @@ DT_ssc_encoded <- sepsis_base_cohort_data %>%
                    hadm_id,
                    stay_id,
                    rec_89_active_fluid_removal_7d_causal,
-                   rec_89_eligibility)] %>%
+                   rec_89_eligibility,
+                   cf_rec89_peak_vasopressor,
+                   cf_rec89_cum_fluid_bolus,
+                   cf_rec89_hours_to_stabilization)] %>%
           unique(),
         by = c("subject_id",
                "hadm_id",
@@ -5989,7 +6088,9 @@ DT_ssc_encoded <- sepsis_base_cohort_data %>%
                    hadm_id,
                    stay_id,
                    rec_90_restrictive_transfusion_causal,
-                   rec_90_eligibility)] %>%
+                   rec_90_eligibility,
+                   cf_rec90_lactate,
+                   cf_rec90_map)] %>%
           unique(),
         by = c("subject_id",
                "hadm_id",
@@ -6002,7 +6103,8 @@ DT_ssc_encoded <- sepsis_base_cohort_data %>%
                    hadm_id,
                    stay_id,
                    rec_91_early_enteral_nutrition_causal,
-                   rec_91_eligibility)] %>%
+                   rec_91_eligibility,
+                   cf_rec91_early_shock)] %>%
           unique(),
         by = c("subject_id",
                "hadm_id",
@@ -6015,7 +6117,8 @@ DT_ssc_encoded <- sepsis_base_cohort_data %>%
                    hadm_id,
                    stay_id,
                    rec_92_insulin_started_at_glucose_180_causal,
-                   rec_92_eligibility)] %>%
+                   rec_92_eligibility,
+                   cf_rec92_qualifying_glucose)] %>%
           unique(),
         by = c("subject_id",
                "hadm_id",
@@ -6028,7 +6131,11 @@ DT_ssc_encoded <- sepsis_base_cohort_data %>%
                    hadm_id,
                    stay_id,
                    rec_96_sodium_bicarb_causal,
-                   rec_96_eligibility)] %>%
+                   rec_96_eligibility,
+                   cf_rec96_ph,
+                   cf_rec96_aki_stage,
+                   cf_rec96_lactate,
+                   cf_rec96_vaso_burden)] %>%
           unique(),
         by = c("subject_id",
                "hadm_id",
@@ -6054,7 +6161,55 @@ DT_ssc_encoded <- sepsis_base_cohort_data %>%
 saveRDS(DT_ssc_encoded,
         here::here("Data/DT_ssc_encoded.rds"))
 
-ssc_recommendations_encoded <- ssc_recommendations %>% 
+
+## Adherence summary for Table 6.2 -------------------------------------------
+## For each recommendation the eligible set is the stays with a non-missing
+## adherence value, and the reported rate is the mean of that indicator. The
+## descriptive adherence column is used, which for recommendations 7, 10, 16, 17
+## and 44 is broader than the restricted _causal variant used in the causal
+## analysis, so that the figures match the ones reported in the encoding chapter.
+adh_spec <- list(
+  list("7",  rec_7,  "rec_7_culture_before_antimicrobial"),
+  list("8",  rec_8,  "rec_8_lactate_measured_within_1h_causal"),
+  list("10", rec_10, "rec_10_crystalloid_within_3h"),
+  list("13", rec_13, "rec_13_map_target_65"),
+  list("14", rec_14, "rec_14_map_target_60_65"),
+  list("15", rec_15, "rec_15_icu_6h_causal"),
+  list("16", rec_16, "rec_16_antimicrobial_within_1h"),
+  list("17", rec_17, "rec_17_antimicrobial_within_1h"),
+  list("42", rec_42, "rec_42_bp_monitoring"),
+  list("43", rec_43, "rec_43_crystalloid_first_line"),
+  list("44", rec_44, "rec_44_balanced_over_saline"),
+  list("45", rec_45, "rec_45_crystalloid_no_albumin"),
+  list("53", rec_53, "rec_53_first_vaso_norepi"),
+  list("55", rec_55, "rec_55_first_vaso_norepi"),
+  list("56", rec_56, "rec_56_vasopressin_after_escalating_norepi_causal"),
+  list("57", rec_57, "rec_57_epi_after_escalating_norepi_vaso"),
+  list("67", rec_67, "rec_67_hfnc_over_conventional"),
+  list("68", rec_68, "rec_68_first_oxygen_hfnc_causal"),
+  list("69", rec_69, "rec_69_hfnc_over_alternating"),
+  list("71", rec_71, "rec_71_low_tidal_volume"),
+  list("73", rec_73, "rec_73_plateau_pressure_limited"),
+  list("79", rec_79, "rec_79_iv_corticosteroids"),
+  list("89", rec_89, "rec_89_active_fluid_removal_7d_causal"),
+  list("90", rec_90, "rec_90_restrictive_transfusion_causal"),
+  list("91", rec_91, "rec_91_early_enteral_nutrition_causal"),
+  list("92", rec_92, "rec_92_insulin_started_at_glucose_180_causal"),
+  list("96", rec_96, "rec_96_sodium_bicarb_causal"),
+  list("98", rec_98, "rec_98_lmwh_ever"))
+
+adherence_summary <- rbindlist(lapply(adh_spec, function(s) {
+  v <- s[[2]][[s[[3]]]]
+  data.table(rec        = s[[1]],
+             eligible_n = sum(!is.na(v)),
+             adherence  = round(100 * mean(v, na.rm = TRUE), 1))
+}))
+
+fwrite(adherence_summary,
+       here::here("Outputs/adherence_summary.csv"))
+
+
+ssc_recommendations_encoded <- ssc_recommendations %>%
   .[rec_num %in% c(7,
                    8,
                    10,
@@ -6139,7 +6294,20 @@ W_export <- c("anchor_age", "charlson_comorbidity_index", "sofa_score", "sapsii"
 ## Decision-point confounders, added to the baseline block only for the model of
 ## the recommendation they belong to (see the extra_covariates map in the Python
 ## notebook). They are continuous and are left numeric, not integer-coerced.
-confounder_cols <- c("cf_rec56_norepi_rate_escalation")
+confounder_cols <- c("cf_rec56_norepi_rate_escalation",
+                     "cf_rec56_lactate",
+                     "cf_rec56_map",
+                     "cf_rec89_peak_vasopressor",
+                     "cf_rec89_cum_fluid_bolus",
+                     "cf_rec89_hours_to_stabilization",
+                     "cf_rec92_qualifying_glucose",
+                     "cf_rec96_ph",
+                     "cf_rec96_aki_stage",
+                     "cf_rec96_lactate",
+                     "cf_rec96_vaso_burden",
+                     "cf_rec91_early_shock",
+                     "cf_rec90_lactate",
+                     "cf_rec90_map")
 
 dml_export <- DT_ssc_encoded[, c(id_cols, candidate_cols, confounder_cols),
                              with = FALSE] %>%
@@ -6147,6 +6315,7 @@ dml_export <- DT_ssc_encoded[, c(id_cols, candidate_cols, confounder_cols),
                         with = FALSE],
         by = id_cols, all.x = TRUE) %>%
   merge(baseline_covariates[, c(id_cols, "gender", W_export,
+                                "myocardial_infarct", "congestive_heart_failure",
                                 "well_observed", "well_observed_strict"),
                             with = FALSE],
         by = id_cols, all.x = TRUE)
@@ -6157,6 +6326,14 @@ dml_export[, gender := NULL]
 dml_export[, (candidate_cols) := lapply(.SD, as.integer),
            .SDcols = candidate_cols]
 dml_export[, aki_baseline_stage := as.numeric(aki_baseline_stage)]
+
+## rec 90 decision-point confounder: a dedicated cardiac-risk flag (myocardial
+## infarction or congestive heart failure), which lowers the hemoglobin threshold
+## a clinician accepts. The aggregate Charlson index in W only partially captures
+## this, so the specific cardiac mechanism is isolated here.
+dml_export[, cf_rec90_cardiac := as.integer(myocardial_infarct == 1 |
+                                              congestive_heart_failure == 1)]
+dml_export[, c("myocardial_infarct", "congestive_heart_failure") := NULL]
 
 arrow::write_parquet(dml_export, here::here("Outputs/dml_analysis_frame.parquet"))
   

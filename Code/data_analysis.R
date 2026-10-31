@@ -4,6 +4,50 @@ source(here::here("Code/global.R"))
 DT_ssc_encoded <- readRDS(here::here("Data/DT_ssc_encoded.rds")) %>% 
   setDT()
 
+## Adherence columns
+adh_cols <- names(DT_ssc_encoded) %>% 
+  .[grepl("^rec_", 
+          names(DT_ssc_encoded)) &
+      vapply(DT_ssc_encoded, 
+             is.logical,
+             logical(1))]
+
+
+## lonog format, eligible patients only
+long <- melt(DT_ssc_encoded,
+             id.vars = c("subject_id",
+                         "hadm_id",
+                         "stay_id"),
+             measure.vars = adh_cols,
+             variable.name = "recommendation",
+             value.name = "adherent") %>% 
+  .[!is.na(adherent)]
+
+
+counts <- long %>% 
+  copy() %>% 
+  .[, .N, by = .(recommendation,
+                 adherent)] %>% 
+  .[, status := factor(adherent,
+                       levels = c(TRUE,
+                                  FALSE),
+                       labels = c("Adherent",
+                                  "Not adherent"))]
+
+counts %>% 
+  copy() %>% 
+  ggplot(aes(status,
+             N,
+             fill = status)) +
+  geom_col() +
+  facet_wrap(~ recommendation,
+             scales = "free_y") +
+  labs(x = NULL,
+       y = "Eligible patients") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+
 ## Functions to create adherance & eligbility barplots ---------------------------------------
 create_barplot_adherance <- function(.data,
                            .rec,
