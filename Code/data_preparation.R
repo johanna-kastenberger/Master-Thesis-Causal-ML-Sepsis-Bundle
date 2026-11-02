@@ -3062,5 +3062,5 @@ grViz(dot) %>%
   DiagrammeRsvg::export_svg() %>% 
   charToRaw() %>% 
   rsvg::rsvg_pdf(here::here("Outputs/cohort_flowchart.pdf"),
-                 width = 1400)
+                 width = 1000)
 

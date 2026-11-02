@@ -10,6 +10,8 @@ library(stringr)
 library(flowchart)
 library(arrow)
 library(kableExtra)
+library(gtsummary)
+library(gt)
 
 ## Link Big Query Data
 library(bigrquery)

@@ -1509,6 +1509,7 @@ rec_10 <- sepsis_base_cohort_data %>%
 # Check resulting adherence rates
 ## PRIMARY: >= 30 mL/kg crystalloid (Bolus + Continuous IV), actual body weight
 proportions(table(rec_10$rec_10_crystalloid_within_3h))
+table(rec_10$rec_10_crystalloid_within_3h)
 
 ## adjusted body weight target (BMI > 30, guideline Table 4)
 proportions(table(rec_10$rec_10_crystalloid_within_3h_adjbw))

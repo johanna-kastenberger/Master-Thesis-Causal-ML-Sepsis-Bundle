@@ -1,87 +1,5 @@
 # Deriving a Sepsis Bundle of Care with Causal Machine Learning
 
-Code for the master's thesis *Deriving a Sepsis Bundle of Care with Causal Machine Learning: Encoding and Evaluating Adherence to the 2026 Surviving Sepsis Campaign Guidelines in MIMIC-IV.*
-
-The pipeline encodes the 2026 Surviving Sepsis Campaign (SSC) recommendations as computable phenotypes in the MIMIC-IV critical-care database, measures adherence to each recommendation, estimates the causal effect of adherence on patient outcomes with Double Machine Learning (an Interactive Regression Model), and derives a four-component bundle of care from the recommendations that show a robust benefit.
-
----
-
-## 1. Requirements
-
-### Software
-
-| Component | Version used | Notes |
-|-----------|-------------|-------|
-| R         | 4.6.0       | Data extraction, encoding, descriptive analysis, E-values, tables |
-| Python    | 3.12.15     | Double ML grid with the native sensitivity analysis, SHAP diagnostics |
-
-R packages (loaded in `Code/global.R`): `data.table`, `magrittr`, `dplyr`, `tidyverse`, `lubridate`, `here`, `glue`, `stringr`, `flowchart`, `arrow`, `kableExtra`, `bigrquery`, `DoubleML`, `mlr3`, `mlr3learners`, `ranger`, `xgboost`, `dagitty`, `EValue`, `DiagrammeR`, `DiagrammeRsvg`, `rsvg`.
-
-Python libraries: `numpy`, `pandas`, `scikit-learn`, `doubleml`, `shap`, `matplotlib`, `tqdm`, `pyarrow`.
-
-### Data access
-
-The analysis runs on **MIMIC-IV v3.1**, which is not redistributed with this repository. Patient-level data must be obtained directly from PhysioNet under its data use agreement, and the extracted `.rds`/`.parquet` files are git-ignored. The next section explains how to obtain access and connect the code to a user-specific query project.
-
----
-
-## 2. Getting access to MIMIC-IV and connecting to BigQuery
-
-The extraction script `Code/data_preparation.R` reads MIMIC-IV directly from the PhysioNet-hosted copy on Google BigQuery. Running it on another machine requires a credentialed PhysioNet account, BigQuery access to the MIMIC-IV project, and a user-specific Google Cloud billing project. The MIMIC tables themselves are free to query, and the billing project only exists so Google can charge the (small) query cost, which does not extend past the free tier for this pipeline.
-
-### Step 1 - Become a credentialed PhysioNet user
-
-1. Create an account at <https://physionet.org>.
-2. Complete the required **CITI "Data or Specimens Only Research"** training course and upload the completion report to your PhysioNet profile.
-3. Submit the credentialing application and wait for approval.
-
-### Step 2 - Sign the MIMIC-IV data use agreement
-
-1. Open the MIMIC-IV v3.1 project page: <https://physionet.org/content/mimiciv/3.1/>.
-2. Read and sign the data use agreement at the bottom of the page. Access is granted to your credentialed account once it is signed.
-
-### Step 3 - Request BigQuery access to MIMIC-IV
-
-1. On the MIMIC-IV project page, open the **"Files"** section and follow the link to *"Request access to MIMIC-IV on Google BigQuery"* (the "Google Cloud" access link).
-2. Enter the Google account (Gmail or Google Workspace address) associated with BigQuery. PhysioNet then grants that Google identity read access to the `physionet-data` BigQuery project, where the MIMIC-IV datasets live (`physionet-data.mimiciv_3_1_hosp`, `mimiciv_3_1_icu`, `mimiciv_3_1_derived`, `mimiciv_3_1_ed`, `mimiciv_note`).
-3. Access propagation can take up to a few hours.
-
-### Step 4 - Create a user-specific Google Cloud billing project
-
-It is not possible to run queries *inside* the read-only `physionet-data` project, so the user must supply their own project to execute them from.
-
-1. Go to the Google Cloud Console: <https://console.cloud.google.com>.
-2. Create a new project (any name). Note its **Project ID**, for example `my-mimic-analysis`, shown on the project dashboard. This is the ID the code needs.
-3. Enable the **BigQuery API** for that project (APIs & Services -> Enable APIs -> BigQuery API). A billing account must be attached to the project, but the MIMIC
-   queries in this pipeline stay within BigQuery's monthly free query allowance.
-
-### Step 5 - Link the code to the user-specific project
-
-Open `Code/data_preparation.R` and change the single line near the top:
-
-    ## 1. SET UP BIG QUERY CONNECTION ----------------------------------------------
-    project_id <- "master-thesis-492309"   # <-- replace with THE USER'S Google Cloud project ID
-
-Set `project_id` to the Project ID from Step 4. Nothing else needs to change: the
-`physionet-data.mimiciv_3_1_*` dataset names are the shared public references and stay the same for all users.
-
-### Step 6 - Authenticate on first run
-
-The first query triggers `bigrquery`'s OAuth flow in the browser. Sign in with the **same Google account** registered to PhysioNet in Step 3, and grant the requested BigQuery scope. The token is cached, so later runs are non-interactive. To switch accounts, run `bigrquery::bq_auth(email = "user@example.com")` before sourcing the script, or clear the cache with `bigrquery::bq_deauth()`.
-
-A quick way to confirm everything is wired up correctly:
-
-    library(bigrquery)
-    project_id <- "my-mimic-analysis"   # user project ID
-    bq_table_download(
-      bq_project_query(
-        project_id,
-        "SELECT COUNT(*) AS n FROM `physionet-data.mimiciv_3_1_hosp.patients`"))
-
-A returned row count means credentialing, BigQuery access, and billing are all working.
-
-# Deriving a Sepsis Bundle of Care with Causal Machine Learning
-
 Code for the master's thesis *Deriving a Sepsis Bundle of Care with Causal Machine
 Learning: Encoding and Evaluating Adherence to the 2026 Surviving Sepsis Campaign
 Guidelines in MIMIC-IV.*
@@ -105,8 +23,8 @@ bundle of care from the recommendations that show a robust benefit.
 
 R packages (loaded in `Code/global.R`): `data.table`, `magrittr`, `dplyr`,
 `tidyverse`, `lubridate`, `here`, `glue`, `stringr`, `flowchart`, `arrow`,
-`kableExtra`, `bigrquery`, `DoubleML`, `mlr3`, `mlr3learners`, `ranger`, `xgboost`,
-`dagitty`, `EValue`, `DiagrammeR`, `DiagrammeRsvg`, `rsvg`.
+`kableExtra`, `gtsummary`, `gt`, `bigrquery`, `DoubleML`, `mlr3`, `mlr3learners`,
+`ranger`, `xgboost`, `dagitty`, `EValue`, `DiagrammeR`, `DiagrammeRsvg`, `rsvg`.
 
 Python packages: `numpy`, `pandas`, `scikit-learn`, `doubleml`, `shap`, `matplotlib`,
 `tqdm`, `pyarrow`.
@@ -229,6 +147,9 @@ Descriptive analysis of adherence across the encoded cohort: per-recommendation
 adherence rates, eligible counts, and the summary tables
 (`Outputs/adherence_table.tex`, `Outputs/adherence_summary.csv`).
 
+### `Code/baseline_table.R`
+Builds the baseline-characteristics table (Table 1) describing the cohort. Reads `Data/sepsis_base_cohort_data.rds` and `Data/baseline_covariates.rds` and reports demographics, comorbidities, admission laboratory values, severity scores, and outcomes in three columns (whole cohort, sepsis without shock, septic shock) with a shock-vs-no-shock comparison, using `gtsummary`. Writes `Outputs/baseline_table.tex`. It sources `data_preparation.R`, so the cached `.rds` frames must already exist (the two cohort files are read directly rather than re-extracted).
+
 ### `Code/double_ML_IRM_all_recs.R`
 The R Double ML run across all analyzed recommendations, outcomes, and observability tiers, using `DoubleML`/`mlr3` with random-forest nuisance learners. Sources `define_ssc_variables.R`, so it can be run directly once the cohort is built. This is the R counterpart that the Python sensitivity script mirrors.
 
@@ -238,7 +159,7 @@ A single-recommendation version of the IRM, useful for inspecting or debugging o
 ### `Code/double_ML_IRM_sensitivity.ipynb`  *(Python)*
 Re-fits the Interactive Regression Model grid in Python and adds the native DoubleML **sensitivity analysis** that the R package lacks: the robustness values (`rv`, `rva`) and the benchmarking of those values against observed confounders (SOFA, SAPS II). Reads `dml_analysis_frame.parquet` and writes `Outputs/dml_irm_results_py.csv` and `Outputs/dml_irm_diagnostics_py.csv`. A `.py` paired script (`double_ML_IRM_sensitivity.py`) holds the same code as a plain module.
 
-> Note on paths: the notebook expects to run from the project root, so the parquet and output CSVs resolve under `Outputs/`. If the user's Jupyter kernel starts in `Code/`, `os.chdir` to the project root in the first cell.
+> Note on paths: the notebook expects to run from the project root, so the parquet and output CSVs resolve under `Outputs/`. If your Jupyter kernel starts in `Code/`, `os.chdir` to the project root in the first cell.
 
 ### `Code/FDR_and_Evalue.R`
 Reads the Python results CSVs back into R and produces the inferential layer: the Benjamini-Hochberg false-discovery-rate correction across the full-tier tests, the E-values (via the `EValue` package), the propensity-overlap inclusion screen, and the robustness-value benchmark. Writes the main thesis tables (`Outputs/results_table.tex`, `tier_table.tex`, `sensitivity_benchmark.tex`, `propensity_table.tex`, and `dml_irm_results_expanded.csv`).
@@ -257,6 +178,7 @@ SHAP diagnostics for the nuisance models. Fits diagnostic random forests and pro
     source("Code/SSC_guidelines.R")          # recommendation catalog
     source("Code/data_preparation.R")        # BigQuery extraction  (needs your project_id)
     source("Code/define_ssc_variables.R")    # encoding -> DT_ssc_encoded.rds + parquet
+    source("Code/baseline_table.R")          # Table 1 -> Outputs/baseline_table.tex
 
     # Python, from the project root
     jupyter nbconvert --to notebook --execute Code/double_ML_IRM_sensitivity.ipynb
@@ -265,9 +187,6 @@ SHAP diagnostics for the nuisance models. Fits diagnostic random forests and pro
     # R again, to build the inferential tables from the Python output
     source("Code/FDR_and_Evalue.R")
     source("Code/association_relative_bundle_adherence.R")
-
-    # Python again, to create the SHAP value plots
-    source("Code/propensity_shap.ipynb")
 
 ---
 
