@@ -148,7 +148,7 @@ adherence rates, eligible counts, and the summary tables
 (`Outputs/adherence_table.tex`, `Outputs/adherence_summary.csv`).
 
 ### `Code/baseline_table.R`
-Builds the baseline-characteristics table (Table 1) describing the cohort. Reads `Data/sepsis_base_cohort_data.rds` and `Data/baseline_covariates.rds` and reports demographics, comorbidities, admission laboratory values, severity scores, and outcomes in three columns (whole cohort, sepsis without shock, septic shock) with a shock-vs-no-shock comparison, using `gtsummary`. Writes `Outputs/baseline_table.tex`. It sources `data_preparation.R`, so the cached `.rds` frames must already exist (the two cohort files are read directly rather than re-extracted).
+Builds the baseline-characteristics table describing the cohort. Reads `Data/sepsis_base_cohort_data.rds` and `Data/baseline_covariates.rds` and reports demographics, comorbidities, admission laboratory values, severity scores, and outcomes in three columns (whole cohort, sepsis without shock, septic shock) with a shock-vs-no-shock comparison, using `gtsummary`. Writes `Outputs/baseline_table.tex`. It sources `data_preparation.R`, so the cached `.rds` frames must already exist (the two cohort files are read directly rather than re-extracted).
 
 ### `Code/double_ML_IRM_all_recs.R`
 The R Double ML run across all analyzed recommendations, outcomes, and observability tiers, using `DoubleML`/`mlr3` with random-forest nuisance learners. Sources `define_ssc_variables.R`, so it can be run directly once the cohort is built. This is the R counterpart that the Python sensitivity script mirrors.
