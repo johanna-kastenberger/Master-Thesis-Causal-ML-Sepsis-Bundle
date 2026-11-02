@@ -178,7 +178,7 @@ SHAP diagnostics for the nuisance models. Fits diagnostic random forests and pro
     source("Code/SSC_guidelines.R")          # recommendation catalog
     source("Code/data_preparation.R")        # BigQuery extraction  (needs your project_id)
     source("Code/define_ssc_variables.R")    # encoding -> DT_ssc_encoded.rds + parquet
-    source("Code/baseline_table.R")          # Table 1 -> Outputs/baseline_table.tex
+    source("Code/baseline_table.R")          # Baseline table -> Outputs/baseline_table.tex
 
     # Python, from the project root
     jupyter nbconvert --to notebook --execute Code/double_ML_IRM_sensitivity.ipynb
